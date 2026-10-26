@@ -1,0 +1,1809 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#F4F1EA">
+<title>zyb · 视觉参数选择器</title>
+<meta name="description" content="选模板、配细节、实时看对比度，接受后导出 UI 规范文件。">
+<style>
+/* ============================================================
+   视觉方向：暖奶油纸底 + 暖墨 + 单一深陶土（Claude / Anthropic 一路）。
+   用户明确指定了这个方向。按 frontend-design 的规矩，
+   brief 自己的话永远赢，包括当它要的就是某个「默认味道」时：
+   前提是执行彻底，不做成半吊子。
+
+   为什么这个方向适合这一页：
+   工具页的主体是数字与代码。深底会让读数栏的语义色（绿/红/琥珀）
+   全部要重新调一遍才够对比度，而浅底的暖纸底让「红=不通过」
+   这种警告天然醒目。底色服务于判断，不服务于气氛。
+
+   刻意避开的三处（都已在本仓实测过，是这类风格的固有缺陷）：
+   1. 不用亮陶土 #D97757 当强调色（米白底上只有 2.77:1）。
+      一律用深陶土 #A34A28（5.22:1）。
+   2. 不用居中大留白。工具页信息密度优先，左对齐。
+   3. 衬线数字。读数栏是数字密集区，衬线数字会读错。
+      衬线只用在 h1/h2，数字与代码一律等宽。
+
+   零外部请求：不引 CDN、不引字体文件、不发网络请求。
+   代价是只能用系统栈，Georgia 在多数机器上都有，
+   换机器观感会变，这一点在页面里明说。
+   ============================================================ */
+:root {
+  color-scheme: light;
+  --bg:        #F4F1EA;          /* 暖奶油纸底 */
+  --panel:     #FAF8F3;          /* 提亮面：题块、产物预览 */
+  --panel-2:   #F0ECE3;          /* 次级面：代码块、表头 */
+  --ink:       #2A2622;          /* 暖墨，正文 13.31:1 */
+  --ink-2:     #6B6257;          /* 次要文字 5.30:1 */
+  --ink-3:     #756C63;          /* 弱化文字 4.56:1，仍过正文线 */
+  --accent:    #A34A28;          /* 深陶土，唯一强调色 5.22:1 */
+  --accent-dp: #7A3316;          /* 深压版：按钮底 8.05:1 */
+  --line:      #E3DDD0;          /* 发丝线 */
+  --line-2:    #EDE8DE;          /* 更弱的行分隔 */
+
+  --ok:        #3F6B45;          /* 通过 5.47:1 */
+  --bad:       #A32A18;          /* 不通过 6.42:1 */
+  --warn:      #8A6212;          /* 仅装饰可用 4.85:1 */
+
+  --s1: 4px; --s2: 8px; --s3: 12px; --s4: 16px;
+  --s5: 24px; --s6: 40px; --s7: 64px;
+
+  --serif: Georgia, "Times New Roman", "Songti SC", "Noto Serif SC", "Source Han Serif SC", SimSun, serif;
+  --sans: -apple-system, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", "Hiragino Sans GB", sans-serif;
+  --mono: ui-monospace, SFMono-Regular, "JetBrains Mono", Consolas, "Courier New", monospace;
+  --ease: cubic-bezier(0.16, 1, 0.3, 1);
+  --t-fast: 140ms;
+  --t-base: 280ms;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--bg); color: var(--ink);
+  font-family: var(--sans); font-size: 16px; line-height: 1.7;
+}
+h1, h2 { text-wrap: balance; }
+h3, h4 { text-wrap: balance; }
+a { color: var(--ink); text-underline-offset: 3px; text-decoration-thickness: 1px; }
+a, button, select, input, summary { touch-action: manipulation; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 2px; }
+::selection { background: var(--accent); color: #F4F1EA; }
+
+.skip-link {
+  position: absolute; left: -9999px; top: 0; z-index: 200;
+  padding: 12px 20px; background: var(--accent); color: #F4F1EA;
+  font-family: var(--mono); font-size: 13px; text-decoration: none;
+}
+.skip-link:focus-visible { left: 0; }
+
+.mono { font-family: var(--mono); }
+.nowrap { white-space: nowrap; }
+/* 手工断行。text-wrap: balance 只平衡长度、不认词边界，
+   会把中文标题里的词拆到两行，且编辑器里完全看不出来。 */
+.ln { display: block; }
+
+/* ---------- 骨架：顶栏 + 三列（步骤 / 主区 / 实时读数） ---------- */
+.top {
+  position: sticky; top: 0; z-index: 50;
+  border-bottom: 1px solid var(--line);
+  background: var(--bg);
+}
+.top__in {
+  width: min(1560px, 100% - 40px); margin-inline: auto;
+  display: flex; align-items: center; justify-content: space-between; gap: var(--s4);
+  padding: var(--s3) 0;
+}
+.brand { font-size: 15px; font-weight: 700; letter-spacing: -0.01em; text-decoration: none; }
+.brand span { color: var(--ink-3); font-weight: 400; }
+.top__meta { font-family: var(--mono); font-size: 12px; color: var(--ink-3); }
+
+.layout {
+  width: min(1560px, 100% - 40px); margin-inline: auto;
+  display: grid; grid-template-columns: 196px minmax(0, 1fr) 264px; gap: 0 var(--s5);
+  align-items: start;
+  padding-bottom: var(--s7);
+}
+
+/* ---------- 步骤轨 ---------- */
+.steps { position: sticky; top: 68px; padding: var(--s5) 0; }
+.steps__t {
+  font-family: var(--mono); font-size: 11px; letter-spacing: 0.14em;
+  text-transform: uppercase; color: var(--ink-3);
+  margin: 0 0 var(--s3); padding-bottom: var(--s2); border-bottom: 1px solid var(--line);
+}
+.steps ol { list-style: none; margin: 0; padding: 0; }
+.steps button {
+  display: grid; grid-template-columns: 1.9em 1fr; gap: var(--s2);
+  width: 100%; text-align: left; background: none; cursor: pointer;
+  padding: 7px var(--s2) 7px 0; border: 0; border-bottom: 1px solid transparent;
+  color: var(--ink-3); font-family: var(--sans); font-size: 13.5px; line-height: 1.5;
+  transition: color var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease);
+}
+.steps button b { font-family: var(--mono); font-weight: 400; font-size: 12px; }
+.steps button:hover { color: var(--ink-2); }
+.steps button[aria-current="step"] { color: var(--ink); border-bottom-color: var(--line); }
+.steps button[aria-current="step"] b { color: var(--accent); }
+.steps button[data-done="1"] b::after { content: " ✓"; color: var(--accent); }
+
+/* ---------- 主区 ---------- */
+.main { min-width: 0; padding-top: var(--s5); }
+.pagehead { padding: var(--s5) 0 var(--s6); }
+.pagehead h1 {
+  margin: 0 0 var(--s3);
+  font-family: var(--serif); font-weight: 400;
+  font-size: clamp(30px, 3.4vw, 46px); letter-spacing: -0.014em; line-height: 1.1;
+  max-width: 22ch;
+}
+.pagehead p { margin: 0; font-size: 16.5px; max-width: 58ch; }
+.pagehead strong { color: var(--ink); font-weight: 600; }
+.panel { padding: var(--s6) 0; border-bottom: 1px solid var(--line); }
+.panel:last-child { border-bottom: 0; }
+.panel__h {
+  display: flex; align-items: baseline; gap: var(--s3);
+  margin: 0 0 var(--s2);
+}
+.panel__h h2 {
+  margin: 0; font-family: var(--serif); font-weight: 400;
+  font-size: clamp(23px, 2.5vw, 31px); letter-spacing: -0.008em; line-height: 1.2;
+}
+.panel__h .n { font-family: var(--mono); font-size: 12px; color: var(--accent); flex: none; padding-top: 0.35em; }
+.panel__sub { margin: 0 0 var(--s5); font-size: 15.5px; color: var(--ink-2); max-width: 62ch; }
+.panel__sub strong { color: var(--ink); font-weight: 600; }
+
+h3.sub {
+  margin: var(--s5) 0 var(--s3); font-family: var(--serif); font-weight: 400;
+  font-size: 17px; color: var(--ink); letter-spacing: 0;
+}
+p { max-width: 66ch; margin: 0 0 var(--s3); color: var(--ink-2); }
+p:last-child { margin-bottom: 0; }
+code { font-family: var(--mono); font-size: 0.88em; background: var(--panel-2); border: 1px solid var(--line); padding: 1px 5px; border-radius: 3px; }
+
+/* ---------- 表单控件 ---------- */
+.q { border: 1px solid var(--line); border-radius: 3px; padding: var(--s4) var(--s5); margin: 0 0 var(--s3); background: var(--panel); }
+.q__t { font-size: 15px; font-weight: 700; margin: 0 0 var(--s1); color: var(--ink); }
+.q__h { font-size: 13.5px; color: var(--ink-3); margin: 0 0 var(--s3); }
+/* 设计后果：把「这一项会怎么影响设计」显式说出来，
+   不让用户以为选完只是打个标签。左边一条线，视觉上是补充说明不是又一个控件。 */
+.q__c {
+  margin: var(--s3) 0 0; padding: var(--s2) 0 var(--s2) var(--s4);
+  border-left: 2px solid var(--accent);
+  font-size: 13px; line-height: 1.65; color: var(--ink-2);
+}
+.q__c[hidden] { display: none; }
+.q__c b { color: var(--ink); font-weight: 600; }
+.opts { display: flex; flex-wrap: wrap; gap: var(--s2); }
+.opt {
+  position: relative; display: inline-flex; align-items: center; gap: 7px;
+  padding: 7px 13px; border: 1px solid var(--line); border-radius: 3px;
+  background: var(--bg); cursor: pointer;
+  font-size: 13.5px; line-height: 1.4; color: var(--ink-2);
+  transition: border-color var(--t-fast) var(--ease), color var(--t-fast) var(--ease), background var(--t-fast) var(--ease);
+}
+.opt input { position: absolute; opacity: 0; pointer-events: none; }
+.opt:hover { border-color: var(--ink-2); color: var(--ink); }
+.opt:has(input:checked) { border-color: var(--accent); color: var(--ink); background: var(--panel-2); }
+.opt:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 3px; }
+/* 圆点描边用 ink-2 不用 ink-3：这个点是纯图形元素（无文字），
+   线要按 3:1 计。ink-3 在纸底上只有 2.55:1，连图形线都不够，
+   深底时看不出来，换浅底立刻露馅。 */
+.opt__dot { width: 9px; height: 9px; border-radius: 50%; border: 1px solid var(--ink-2); flex: none; }
+.opt:has(input:checked) .opt__dot { background: var(--accent); border-color: var(--accent); }
+
+.field { display: flex; align-items: center; gap: var(--s3); margin: 0 0 var(--s2); flex-wrap: wrap; }
+.field > label { font-size: 13.5px; color: var(--ink-2); flex: 0 0 9em; }
+select, input[type="text"] {
+  font-family: var(--mono); font-size: 13px;
+  background: var(--bg); color: var(--ink);
+  border: 1px solid var(--line); border-radius: 3px; padding: 7px 10px;
+  min-width: 0; flex: 1 1 12em;
+}
+input[type="range"] { flex: 1 1 12em; accent-color: var(--accent); min-width: 0; }
+input[type="color"] {
+  width: 40px; height: 32px; padding: 2px; background: var(--bg);
+  border: 1px solid var(--line); border-radius: 3px; cursor: pointer; flex: none;
+}
+
+/* ---------- 模板卡 ---------- */
+.tpl { display: grid; grid-template-columns: repeat(auto-fit, minmax(268px, 1fr)); gap: var(--s3); }
+.tcard {
+  position: relative; display: block; cursor: pointer;
+  border: 1px solid var(--line); border-radius: 5px; overflow: hidden;
+  background: var(--panel); padding: 0;
+  transition: border-color var(--t-fast) var(--ease);
+}
+.tcard:hover { border-color: var(--ink-2); }
+.tcard:has(input:checked) { border-color: var(--accent); }
+.tcard:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 3px; }
+.tcard input { position: absolute; opacity: 0; pointer-events: none; }
+.tcard__sw { display: flex; height: 46px; }
+.tcard__sw i { flex: 1; }
+.tcard__b { padding: var(--s3) var(--s4) var(--s4); }
+.tcard__n { font-size: 14.5px; font-weight: 700; margin: 0 0 4px; display: flex; align-items: baseline; gap: var(--s2); }
+.tcard__n em { font-style: normal; font-family: var(--mono); font-size: 11px; color: var(--ink-3); font-weight: 400; }
+.tcard__d { font-size: 13px; color: var(--ink-3); margin: 0 0 var(--s2); line-height: 1.55; }
+.tcard__r { font-family: var(--mono); font-size: 11.5px; color: var(--ink-3); }
+.tcard:has(input:checked) .tcard__n::after { content: "已选"; font-family: var(--mono); font-size: 11px; color: var(--accent); font-weight: 400; }
+
+/* ---------- 预览台 ---------- */
+.stage {
+  border: 1px solid var(--line); border-radius: 5px; overflow: hidden;
+  background: var(--panel);
+}
+.stage__bar {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--s3);
+  padding: var(--s2) var(--s4); border-bottom: 1px solid var(--line);
+  font-family: var(--mono); font-size: 11.5px; color: var(--ink-3);
+}
+/* 预览里的所有尺寸都用 em，跟着 :root 的 font-size 缩放 */
+.pv {
+  /* ---- 下面这一组是「候选模板注入点」 ---- */
+  --pv-ground: #14161A;
+  --pv-surface: #1C1F24;
+  --pv-ink: #E8E6E1;
+  --pv-ink-2: #A2A8B0;
+  --pv-accent: #E0A030;
+  --pv-accent-dp: #B37E1C;
+  --pv-rule: #2E333A;
+  --pv-r-lg: 14px; --pv-r-md: 9px; --pv-r-sm: 5px;
+  --pv-s2: 8px; --pv-s3: 12px; --pv-s4: 16px; --pv-s5: 26px; --pv-s6: 44px;
+  --pv-font-display: var(--sans);
+  --pv-mt: 280ms; --pv-mf: 140ms;
+
+  background: var(--pv-ground); color: var(--pv-ink);
+  font-family: var(--pv-font-body, var(--sans));
+  font-size: 15px; line-height: 1.7;
+  padding: var(--pv-s6) var(--pv-s5);
+  min-height: 340px;
+}
+.pv__top { display: flex; align-items: baseline; justify-content: space-between; gap: var(--pv-s4); padding-bottom: var(--pv-s3); border-bottom: 1px solid var(--pv-rule); margin-bottom: var(--pv-s6); }
+.pv__brand { font-family: var(--pv-font-display); font-size: 1.06em; font-weight: 700; color: var(--pv-ink); }
+.pv__nav { display: flex; gap: var(--pv-s4); font-family: var(--pv-mono, var(--mono)); font-size: 0.72em; color: var(--pv-ink-2); }
+.pv__nav a { color: var(--pv-ink-2); text-decoration: none; border-bottom: 1px solid transparent; }
+.pv__nav a:hover { color: var(--pv-ink); border-bottom-color: var(--pv-ink-2); }
+.pv__h {
+  font-family: var(--pv-font-display);
+  font-size: 1.95em; font-weight: var(--pv-h-weight, 700);
+  letter-spacing: var(--pv-h-track, -0.02em); line-height: 1.16;
+  margin: 0 0 var(--pv-s3); max-width: 22ch; color: var(--pv-ink);
+}
+/* 手工断行。text-wrap: balance 只平衡长度、不认词边界，
+   会把「那个决定」拆到两行，中文标题必须自己指定断点。 */
+.pv__br { display: block; }
+.pv__p { margin: 0 0 var(--pv-s5); max-width: 46ch; color: var(--pv-ink-2); font-size: 0.97em; }
+.pv__acts { display: flex; flex-wrap: wrap; gap: var(--pv-s3); align-items: center; margin-bottom: var(--pv-s6); }
+.pv__btn {
+  display: inline-block; font-family: var(--pv-font-body, var(--sans)); font-size: 0.9em;
+  padding: 10px 20px; border-radius: var(--pv-r-pill, 3px);
+  border: 1px solid var(--pv-accent-dp); background: var(--pv-accent-dp); color: var(--pv-ground);
+  cursor: pointer; text-decoration: none; font-weight: 500;
+  transition: background var(--pv-mf) var(--ease), color var(--pv-mf) var(--ease), border-color var(--pv-mf) var(--ease);
+}
+.pv[data-trigger="hover"] .pv__btn:hover { background: var(--pv-accent); border-color: var(--pv-accent); color: var(--pv-on-accent, var(--pv-ground)); }
+.pv__btn--g { background: transparent; color: var(--pv-ink); border-color: var(--pv-rule); }
+.pv[data-trigger="hover"] .pv__btn--g:hover { background: transparent; color: var(--pv-ink); border-color: var(--pv-ink-2); }
+.pv__grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: var(--pv-s4); }
+.pv__cell { border-top: 2px solid var(--pv-ink); padding-top: var(--pv-s3); }
+.pv__cell h4 { margin: 0 0 5px; font-size: 0.92em; font-weight: 700; color: var(--pv-ink); }
+.pv__cell p { margin: 0; font-size: 0.86em; color: var(--pv-ink-2); max-width: none; }
+.pv__cell--a { border-top-color: var(--pv-accent-dp); }
+.pv__hl { background: var(--pv-accent); color: var(--pv-on-accent, var(--pv-ground)); padding: 0 4px; border-radius: 3px; }
+.pv__tag {
+  display: inline-block; font-family: var(--pv-mono, var(--mono)); font-size: 0.68em;
+  padding: 3px 7px; border-radius: 3px;
+  background: var(--pv-accent); color: var(--pv-on-accent, var(--pv-ground));
+}
+
+/* ---------- 读数侧栏 ---------- */
+.readout { position: sticky; top: 68px; padding: var(--s5) 0; }
+.ro__t {
+  font-family: var(--mono); font-size: 11px; letter-spacing: 0.14em;
+  text-transform: uppercase; color: var(--ink-3);
+  margin: 0 0 var(--s3); padding-bottom: var(--s2); border-bottom: 1px solid var(--line);
+}
+.ro__row {
+  display: grid; grid-template-columns: 1fr auto; gap: var(--s2);
+  padding: 7px 0; border-bottom: 1px solid var(--line-2);
+  font-size: 12.5px; color: var(--ink-2);
+}
+.ro__row b { font-family: var(--mono); font-weight: 400; color: var(--ink); font-size: 12px; }
+.ro__row .v { font-family: var(--mono); font-size: 12px; }
+.ok { color: var(--ok); }
+.bad { color: var(--bad); }
+.warn { color: var(--warn); }
+.ro__note { margin: var(--s3) 0 0; font-size: 12px; color: var(--ink-3); line-height: 1.6; }
+
+/* ---------- 组件台 ----------
+   每个组件必须显示四态（常态 / 悬停 / 焦点 / 禁用）。
+   只显示常态等于没做交互设计：悬停与焦点是两种不同的视觉承诺，
+   它们的区别只有在对比着看的时候才成立。 */
+.cmp { margin: 0 0 var(--s5); border: 1px solid var(--line); border-radius: 5px; overflow: hidden; }
+.cmp__h {
+  display: flex; align-items: baseline; gap: var(--s3); flex-wrap: wrap;
+  padding: var(--s3) var(--s4); background: var(--panel-2);
+  border-bottom: 1px solid var(--line);
+}
+.cmp__n { font-weight: 700; font-size: 14.5px; }
+.cmp__d { font-size: 12.5px; color: var(--ink-2); flex: 1 1 14em; }
+.cmp__grid {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: var(--s4); padding: var(--s4);
+}
+.cmp__cell { min-width: 0; }
+.cmp__lab {
+  font-family: var(--mono); font-size: 10.5px; color: var(--ink-3);
+  letter-spacing: 0.06em; margin: 0 0 var(--s2);
+  display: flex; align-items: center; gap: 5px;
+}
+.cmp__lab::after { content: ""; flex: 1; height: 1px; background: var(--line-2); }
+.cmp__stack { display: flex; flex-wrap: wrap; gap: var(--s2); align-items: center; }
+
+/* 组件台内部使用 --c-* 变量，与预览台 --pv-* 分开，互不污染 */
+#cmpBench {
+  --c-bg: var(--bg); --c-ink: var(--ink); --c-ink2: var(--ink-2);
+  --c-acc: var(--accent); --c-accdp: var(--accent-dp); --c-rule: var(--line);
+  --c-r: 3px;
+  --c-mt: var(--t-base); --c-mf: var(--t-fast);
+  --c-ease: var(--ease);
+}
+
+/* 按钮：形态三档 */
+.cbtn {
+  display: inline-flex; align-items: center; justify-content: center;
+  font-family: var(--sans); font-size: 13px; line-height: 1;
+  padding: var(--c-accPad, 9px) var(--c-accPadX, 16px); border-radius: var(--c-r); cursor: pointer;
+  transition: background var(--c-mf) var(--c-ease),
+              color var(--c-mf) var(--c-ease),
+              border-color var(--c-mf) var(--c-ease),
+              transform var(--c-mf) var(--c-ease);
+}
+.cbtn--solid { background: var(--c-accdp); border: 1px solid var(--c-accdp); color: var(--c-on-dp); }
+#cmpBench[data-trigger="hover"] .cbtn--solid:is(:hover,[data-preview="hover"]) { background: var(--c-acc); border-color: var(--c-acc); color: var(--c-on-accent); }
+.cbtn--outline { background: transparent; border: 1px solid var(--c-control); color: var(--c-ink); }
+#cmpBench[data-trigger="hover"] .cbtn--outline:is(:hover,[data-preview="hover"]) { border-color: var(--c-ink); }
+.cbtn--ghost { background: transparent; border: 1px solid transparent; color: var(--c-ink); padding-left: 2px; padding-right: 2px; }
+#cmpBench[data-trigger="hover"] .cbtn--ghost:is(:hover,[data-preview="hover"]) { text-decoration: underline; text-underline-offset: 3px; }
+/* 按下反馈三档 */
+.cbtn[data-press="darken"]:active { background: var(--c-ink); border-color: var(--c-ink); color: var(--c-bg); }
+.cbtn[data-press="sink"]:active { transform: translateY(1px); }
+.cbtn[data-press="none"]:active { transform: none; }
+.cbtn:focus-visible { outline: 2px solid var(--c-control); outline-offset: 2px; }
+.cbtn:disabled, .cbtn[aria-disabled="true"] { opacity: 0.42; cursor: not-allowed; }
+
+/* 输入框：形态三档 */
+.cinp {
+  display: block; width: 100%; min-width: 0;
+  font-family: var(--sans); font-size: 13px; color: var(--c-ink);
+  padding: 8px 10px; border-radius: var(--c-r);
+  background: var(--c-bg);
+  transition: border-color var(--c-mf) var(--c-ease),
+              box-shadow var(--c-mf) var(--c-ease),
+              background var(--c-mf) var(--c-ease);
+}
+.cinp::placeholder { color: var(--c-ink2); }
+.cinp--boxed { border: 1px solid var(--c-control); }
+.cinp--line { border: 0; border-bottom: 1px solid var(--c-control); border-radius: 0; padding-left: 0; padding-right: 0; }
+.cinp--fill { border: 1px solid var(--c-control); background: var(--c-fill); }
+/* 焦点反馈三档 */
+.cinp[data-focus="border"]:is(:focus,[data-preview="focus"]) { border-color: var(--c-ink); }
+.cinp--line[data-focus="border"]:is(:focus,[data-preview="focus"]) { border-bottom-color: var(--c-control); border-bottom-width: 2px; padding-bottom: 7px; }
+.cinp--fill:focus { border-color: var(--c-control); }
+.cinp[data-focus="glow"]:is(:focus,[data-preview="focus"]) { box-shadow: 0 0 0 3px var(--c-control); }
+.cinp:is(:focus-visible,[data-preview="focus"]) { outline: 2px solid var(--c-control); outline-offset: 2px; }
+.cinp:disabled { opacity: 0.42; cursor: not-allowed; }
+
+/* 下拉：形态三档 */
+.csel {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--s2);
+  width: 100%; font-family: var(--sans); font-size: 13px; color: var(--c-ink);
+  padding: 8px 10px; border-radius: var(--c-r); background: var(--c-bg);
+  cursor: pointer; text-align: left;
+  transition: border-color var(--c-mf) var(--c-ease), background var(--c-mf) var(--c-ease);
+}
+.csel::after { content: ""; flex: none; width: 7px; height: 7px; border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor; transform: rotate(45deg) translateY(-2px); }
+.csel--native { border: 1px solid var(--c-control); }
+#cmpBench[data-trigger="hover"] .csel--native:is(:hover,[data-preview="hover"]) { border-color: var(--c-ink); }
+.csel--fill { border: 1px solid var(--c-control); }
+#cmpBench[data-trigger="hover"] .csel--fill:is(:hover,[data-preview="hover"]) { border-color: var(--c-ink); background: var(--panel-2); }
+.csel--line { border: 0; border-bottom: 1px solid var(--c-control); border-radius: 0; padding-left: 0; padding-right: 0; }
+#cmpBench[data-trigger="hover"] .csel--line:is(:hover,[data-preview="hover"]) { border-bottom-color: var(--c-ink); }
+.csel:focus-visible { outline: 2px solid var(--c-control); outline-offset: 2px; }
+
+/* 标签页：指示三档 */
+.ctabs { display: flex; gap: var(--s4); border-bottom: 1px solid var(--c-control); width: 100%; }
+.ctab {
+  font-family: var(--sans); font-size: 13px; color: var(--c-ink2);
+  background: none; border: 0; cursor: pointer; padding: 7px 0;
+  transition: color var(--c-mf) var(--c-ease), border-color var(--c-mf) var(--c-ease), background var(--c-mf) var(--c-ease);
+}
+.ctab--line { border-bottom: 2px solid transparent; }
+.ctab--line[aria-selected="true"] { color: var(--c-ink); border-bottom-color: var(--c-control); }
+.ctab--block { border-radius: var(--c-r) var(--c-r) 0 0; padding: 7px 12px; }
+.ctab--block[aria-selected="true"] { background: var(--c-ink); color: var(--c-bg); }
+.ctab--bar { border-left: 2px solid transparent; padding-left: 10px; }
+.ctab--bar[aria-selected="true"] { border-left-color: var(--c-control); color: var(--c-ink); }
+#cmpBench[data-trigger="hover"] .ctab:is(:hover,[data-preview="hover"]) { color: var(--c-ink); }
+.ctab:focus-visible { outline: 2px solid var(--c-control); outline-offset: 2px; }
+
+/* 标签 / 徽标 */
+.cbadge {
+  display: inline-block; font-family: var(--mono); font-size: 10.5px;
+  padding: 3px 7px; border-radius: 2px;
+  background: var(--c-acc); color: var(--c-on-accent);
+}
+.cbadge--outline { background: transparent; border: 1px solid var(--c-control); color: var(--c-ink2); }
+
+/* 组件级开关的选项行 */
+.opts2 { display: flex; flex-wrap: wrap; gap: var(--s2); margin: 0 0 var(--s3); }
+.note2 { font-size: 12.5px; color: var(--ink-3); margin: var(--s2) 0 var(--s4); }
+.note2 b { color: var(--ink-2); font-weight: 600; }
+
+/* ---------- 产物预览 ---------- */
+.out { border: 1px solid var(--line); border-radius: 5px; overflow: hidden; margin: 0 0 var(--s4); }
+.out__h {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--s3);
+  padding: var(--s2) var(--s3) var(--s2) var(--s4);
+  background: var(--panel-2); border-bottom: 1px solid var(--line);
+  font-family: var(--mono); font-size: 11.5px; color: var(--ink-2);
+}
+.out pre {
+  margin: 0; padding: var(--s4); background: var(--bg);
+  font-family: var(--mono); font-size: 12px; line-height: 1.65;
+  overflow-x: auto; max-height: 340px; overflow-y: auto; white-space: pre;
+}
+
+.actions { display: flex; flex-wrap: wrap; gap: var(--s3); align-items: center; margin: var(--s5) 0 0; }
+button.act {
+  font-family: var(--mono); font-size: 12.5px; line-height: 1;
+  padding: 11px 18px; cursor: pointer;
+  border: 1px solid var(--line); border-radius: 3px;
+  background: var(--panel); color: var(--ink-2);
+  transition: color var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease), background var(--t-fast) var(--ease);
+}
+button.act:hover { color: var(--ink); border-color: var(--ink-2); }
+button.act--p { background: var(--accent-dp); border-color: var(--accent-dp); color: #F4F1EA; }
+button.act--p:hover { background: var(--accent); border-color: var(--accent); color: #F4F1EA; }
+button.act[data-state="done"] { color: var(--accent); border-color: var(--accent); }
+
+.warnbox {
+  margin: var(--s4) 0 0; padding: var(--s3) var(--s4);
+  border: 1px solid var(--line); border-left: 3px solid var(--accent);
+  background: var(--panel); font-size: 13.5px; color: var(--ink-2);
+}
+.warnbox b { color: var(--ink); font-weight: 600; }
+
+.foot { padding: var(--s5) 0 0; font-family: var(--mono); font-size: 12px; color: var(--ink-3); }
+
+
+/* 样例使用同一组令牌，页面工具栏仍使用自身主题。 */
+.q__t { display: block; }
+.pv { border-radius: var(--pv-r-lg); }
+.pv__cell { border-radius: var(--pv-r-md); }
+.pv__tag, .pv__hl { border-radius: var(--pv-r-sm); }
+.pv__tag { font-variant-numeric: tabular-nums; }
+.pv__h { letter-spacing: var(--pv-h-track); }
+.pv__btn { padding: var(--pv-btn-y) var(--pv-btn-x); transition-timing-function: var(--pv-ease); }
+.pv__btn[data-shape="outline"] { background: transparent; color: var(--pv-ink); border-color: var(--pv-control); }
+.pv__btn[data-shape="ghost"] { background: transparent; color: var(--pv-ink); border-color: transparent; }
+.pv[data-trigger="hover"] .pv__btn[data-shape="outline"]:hover { background: transparent; color: var(--pv-ink); border-color: var(--pv-ink); }
+.pv[data-trigger="hover"] .pv__btn[data-shape="ghost"]:hover { background: transparent; color: var(--pv-ink); border-color: transparent; text-decoration: underline; }
+.pv__btn[data-press="darken"]:active { background: var(--pv-ink); color: var(--pv-ground); }
+.pv__btn[data-press="sink"]:active { transform: translateY(1px); }
+.pv :focus-visible { outline-color: var(--pv-control); }
+#cmpBench .cmp__grid { background: var(--c-bg); color: var(--c-ink); }
+#cmpBench .cmp__lab { color: var(--c-ink2); }
+.cbtn, .cinp, .csel, .ctab { font-family: var(--c-font-body, var(--sans)); }
+.cbtn[data-preview="focus"], .csel[data-preview="focus"] { outline: 2px solid var(--c-control); outline-offset: 2px; }
+.csel--fill { background: var(--c-fill); }
+#cmpBench[data-trigger="hover"] .csel--fill:is(:hover,[data-preview="hover"]) { background: var(--c-bg); }
+.cnum { font-family: var(--c-number-font); font-variant-numeric: tabular-nums; color: var(--c-ink); }
+#cmpBench[data-trigger="hover"] .cinp:is(:hover,[data-preview="hover"]) { border-color: var(--c-ink); }
+.ro__row, .out pre { font-variant-numeric: tabular-nums; }
+button.act:disabled { opacity: .55; cursor: not-allowed; }
+[aria-invalid="true"] { border-color: var(--bad); }
+
+@media (max-width: 1240px) {
+  .layout { grid-template-columns: 172px minmax(0, 1fr); }
+  .readout { grid-column: 2; position: static; padding-top: 0; }
+}
+@media (max-width: 860px) {
+  .layout { grid-template-columns: minmax(0, 1fr); }
+  .steps { position: static; padding: var(--s4) 0 0; }
+  .steps ol { display: grid; grid-template-columns: repeat(auto-fit, minmax(128px, 1fr)); gap: 0 var(--s3); }
+  .readout { grid-column: 1; }
+  .field > label { flex-basis: 100%; }
+  .panel { padding: var(--s5) 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  * { transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; }
+}
+@media print {
+  .steps, .readout, button.act { display: none; }
+  .layout { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+<a class="skip-link" href="#main">跳到主区</a>
+
+<header class="top">
+  <div class="top__in">
+    <span class="brand">zyb<span> / 视觉参数选择器</span></span>
+    <span class="top__meta" id="stamp">未生成</span>
+  </div>
+</header>
+
+<div class="layout">
+
+  <nav class="steps" aria-label="流程">
+    <p class="steps__t">流程</p>
+    <ol id="stepList">
+      <li><button type="button" data-go="s1" aria-current="step"><b>01</b><span>前期问</span></button></li>
+      <li><button type="button" data-go="s2"><b>02</b><span>选模板</span></button></li>
+      <li><button type="button" data-go="s3"><b>03</b><span>调细节</span></button></li>
+      <li><button type="button" data-go="s4"><b>04</b><span>组件</span></button></li>
+      <li><button type="button" data-go="s5"><b>05</b><span>看效果</span></button></li>
+      <li><button type="button" data-go="s6"><b>06</b><span>拿结果</span></button></li>
+    </ol>
+  </nav>
+
+  <main class="main" id="main">
+
+    <div class="pagehead">
+      <h1><span class="ln">界面设计</span><span class="ln">选择器</span></h1>
+      <p>
+        选一套底子，调完细节，接受结果。<strong>右侧读数是实时算的</strong>，
+        配置不合格时禁用导出。读数只覆盖列出的颜色组合，真实页面仍需验收。
+      </p>
+    </div>
+
+    <!-- 01 前期问 -->
+    <section class="panel" id="s1">
+      <div class="panel__h"><span class="n">01</span><h2>前期问</h2></div>
+      <p class="panel__sub">
+        六道题，决定后面该给你看什么。<strong>答不出来的就跳过</strong>，
+        选默认项也能直接往下走，别卡在这儿。
+      </p>
+
+      <div class="q">
+        <p class="q__t" id="q1t">这是哪一类项目？</p>
+        <p class="q__h" id="q1h"></p>
+        <div class="opts" id="q1" role="radiogroup" aria-labelledby="q1t" aria-describedby="q1h"></div>
+        <p class="q__c" id="q1c" hidden></p>
+      </div>
+
+      <div class="q">
+        <p class="q__t" id="q2t">它要让人完成什么？</p>
+        <p class="q__h" id="q2h"></p>
+        <div class="opts" id="q2" role="radiogroup" aria-labelledby="q2t" aria-describedby="q2h"></div>
+        <p class="q__c" id="q2c" hidden></p>
+      </div>
+
+      <div class="q">
+        <p class="q__t" id="q3t">页面有多重？</p>
+        <p class="q__h" id="q3h"></p>
+        <div class="opts" id="q3" role="radiogroup" aria-labelledby="q3t" aria-describedby="q3h"></div>
+      </div>
+
+      <div class="q">
+        <p class="q__t" id="q4t">浅底还是深底？</p>
+        <p class="q__h" id="q4h"></p>
+        <div class="opts" id="q4" role="radiogroup" aria-labelledby="q4t" aria-describedby="q4h"></div>
+      </div>
+
+      <div class="q">
+        <p class="q__t" id="q5t">能接受多少动效？</p>
+        <p class="q__h" id="q5h"></p>
+        <div class="opts" id="q5" role="radiogroup" aria-labelledby="q5t" aria-describedby="q5h"></div>
+      </div>
+
+      <div class="q">
+        <label class="q__t" for="q6">这一页凭什么独特？<span style="font-weight:400;color:var(--ink-3)">（写不出来就先跳过）</span></label>
+        <p class="q__h">一句话。写不出来说明还没想清楚，不是表达不好。</p>
+        <input type="text" id="q6" placeholder="例：首屏是一段真实运行录像，不是 slogan" style="width:100%">
+      </div>
+    </section>
+
+    <!-- 02 选模板 -->
+    <section class="panel" id="s2">
+      <div class="panel__h"><span class="n">02</span><h2>选模板</h2></div>
+      <p class="panel__sub">
+        六套通用底子，<strong>每一套都计算基础颜色组合的对比度</strong>，数字在右侧读数栏。
+        它们是起点不是终点，选完到第 03 步随便改。
+      </p>
+      <div class="tpl" id="tpls"></div>
+    </section>
+
+    <!-- 03 调细节 -->
+    <section class="panel" id="s3">
+      <div class="panel__h"><span class="n">03</span><h2>调细节</h2></div>
+      <p class="panel__sub">
+        改任何一项，右边的预览和读数<strong>立刻重算</strong>。
+        读数由配置色值计算，不能代替真实页面验收。
+      </p>
+
+      <h3 class="sub">配色</h3>
+      <div class="field">
+        <label for="cGround">纸 / 底色</label>
+        <input type="color" id="cGround" value="#14161A">
+        <input type="text" id="cGroundHex" aria-label="底色十六进制" class="mono" value="#14161A" spellcheck="false">
+      </div>
+      <div class="field">
+        <label for="cSurface">面板色</label>
+        <input type="color" id="cSurface" value="#1C1F24">
+        <input type="text" id="cSurfaceHex" aria-label="面板色十六进制" class="mono" value="#1C1F24" spellcheck="false">
+      </div>
+      <div class="field">
+        <label for="cInk">正文墨色</label>
+        <input type="color" id="cInk" value="#E8E6E1">
+        <input type="text" id="cInkHex" aria-label="正文色十六进制" class="mono" value="#E8E6E1" spellcheck="false">
+      </div>
+      <div class="field">
+        <label for="cInk2">次要文字</label>
+        <input type="color" id="cInk2" value="#A2A8B0">
+        <input type="text" id="cInk2Hex" aria-label="次要文字色十六进制" class="mono" value="#A2A8B0" spellcheck="false">
+      </div>
+      <div class="field">
+        <label for="cAccent">强调色</label>
+        <input type="color" id="cAccent" value="#E0A030">
+        <input type="text" id="cAccentHex" aria-label="强调色十六进制" class="mono" value="#E0A030" spellcheck="false">
+      </div>
+      <div class="field">
+        <label for="cAccentDp">强调深<span style="color:var(--ink-3)">（按钮底）</span></label>
+        <input type="color" id="cAccentDp" value="#B37E1C">
+        <input type="text" id="cAccentDpHex" aria-label="按钮底色十六进制" class="mono" value="#B37E1C" spellcheck="false">
+      </div>
+      <div class="field">
+        <label for="accentRole">强调色角色</label>
+        <select id="accentRole">
+          <option value="auto">自动判定（推荐）</option>
+          <option value="text">可作文字与标签底</option>
+          <option value="block">只作色块 / 高亮</option>
+        </select>
+        <span id="accentRoleHint" style="flex:1 1 14em;font-size:12.5px;color:var(--ink-3)"></span>
+      </div>
+
+      <h3 class="sub">形状与密度</h3>
+      <div class="field">
+        <label for="rLg">大圆角</label>
+        <input type="range" id="rLg" min="0" max="24" step="1" value="14">
+        <b class="mono" id="rLgV" style="flex:0 0 3.5em;font-weight:400;font-size:12.5px;color:var(--ink)">14px</b>
+      </div>
+      <div class="field">
+        <label for="rMd">中圆角</label>
+        <input type="range" id="rMd" min="0" max="18" step="1" value="9">
+        <b class="mono" id="rMdV" style="flex:0 0 3.5em;font-weight:400;font-size:12.5px;color:var(--ink)">9px</b>
+      </div>
+      <div class="field">
+        <label for="rSm">小圆角</label>
+        <input type="range" id="rSm" min="0" max="12" step="1" value="5">
+        <b class="mono" id="rSmV" style="flex:0 0 3.5em;font-weight:400;font-size:12.5px;color:var(--ink)">5px</b>
+      </div>
+      <div class="field">
+        <label for="rPill">按钮形状</label>
+        <select id="rPill">
+          <option value="3px">微圆（3px）</option>
+          <option value="999px">胶囊（999px）</option>
+          <option value="0px">直角（0）</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="dens">密度</label>
+        <select id="dens">
+          <option value="0.86">紧凑（0.86）</option>
+          <option value="1" selected>标准（1）</option>
+          <option value="1.18">宽松（1.18）</option>
+        </select>
+      </div>
+
+      <h3 class="sub">字体与动效</h3>
+      <div class="field">
+        <label for="fDisp">展示字</label>
+        <select id="fDisp">
+          <option value="sans">无衬线（系统黑体）</option>
+          <option value="serif">高对比衬线（Georgia / 宋体）</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="hWeight">标题字重</label>
+        <select id="hWeight">
+          <option value="700" selected>700 粗</option>
+          <option value="800">800 更粗</option>
+          <option value="400">400 常规（编辑感）</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="mBase">动效基准</label>
+        <input type="range" id="mBase" min="0" max="640" step="20" value="280">
+        <b class="mono" id="mBaseV" style="flex:0 0 3.5em;font-weight:400;font-size:12.5px;color:var(--ink)">280ms</b>
+      </div>
+    </section>
+
+    <!-- 04 组件 -->
+    <section class="panel" id="s4">
+      <div class="panel__h"><span class="n">04</span><h2>组件</h2></div>
+      <p class="panel__sub">
+        令牌决定「这套界面什么颜色」，组件决定<strong>「按下去是什么感觉」</strong>。
+        按钮、输入框与下拉展示<strong>常态 / 悬停 / 焦点 / 禁用</strong>，标签页可切换：
+        只看常态等于没做交互设计，悬停与焦点是两种不同的视觉承诺。
+      </p>
+
+      <h3 class="sub">按钮</h3>
+      <div class="field">
+        <label for="btnShape">形态</label>
+        <select id="btnShape">
+          <option value="solid">实心（主行动）</option>
+          <option value="outline">描边（次行动）</option>
+          <option value="ghost">幽灵（文字级行动）</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="btnPress">按下反馈</label>
+        <select id="btnPress">
+          <option value="darken">变深</option>
+          <option value="sink">内缩 1px</option>
+          <option value="none">无</option>
+        </select>
+        <span class="note2" id="btnPressNote"></span>
+      </div>
+      <div class="field">
+        <label for="btnSize">内边距</label>
+        <select id="btnSize">
+          <option value="1">紧凑</option>
+          <option value="1.18" selected>标准</option>
+          <option value="1.4">宽松</option>
+        </select>
+        <span class="note2">高度会一起变。低于 40px 在触屏上不够按。</span>
+      </div>
+
+      <h3 class="sub">输入框</h3>
+      <div class="field">
+        <label for="inpShape">形态</label>
+        <select id="inpShape">
+          <option value="boxed">全框</option>
+          <option value="line">下划线</option>
+          <option value="fill">填充</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="inpFocus">焦点反馈</label>
+        <select id="inpFocus">
+          <option value="border">边框变色</option>
+          <option value="glow">外发光</option>
+          <option value="none">只有焦点环</option>
+        </select>
+        <span class="note2" id="inpFocusNote"></span>
+      </div>
+
+      <h3 class="sub">下拉</h3>
+      <div class="field">
+        <label for="selShape">形态</label>
+        <select id="selShape">
+          <option value="native">原生外观（描边）</option>
+          <option value="fill">填充块</option>
+          <option value="line">下划线</option>
+        </select>
+      </div>
+
+      <h3 class="sub">标签页</h3>
+      <div class="field">
+        <label for="tabInd">指示方式</label>
+        <select id="tabInd">
+          <option value="line">下划线</option>
+          <option value="block">填充块</option>
+          <option value="bar">左侧竖条</option>
+        </select>
+        <span class="note2">指示方式要和页面整体调性一致。竖条最安静，下划线最常见，填充块最重。</span>
+      </div>
+
+      <h3 class="sub">字体细节</h3>
+      <div class="field">
+        <label for="numFont">数字字体</label>
+        <select id="numFont">
+          <option value="mono" selected>等宽（数字不跳动）</option>
+          <option value="body">与正文同族</option>
+          <option value="serif">衬线数字</option>
+        </select>
+        <span class="note2" id="numFontNote"></span>
+      </div>
+      <div class="field">
+        <label for="hTrack">标题字距</label>
+        <select id="hTrack">
+          <option value="-0.028em" selected>收紧</option>
+          <option value="-0.01em">轻微</option>
+          <option value="0">常规</option>
+        </select>
+        <span class="note2">衬线标题要收紧，无衬线标题收紧过头会显得挤。</span>
+      </div>
+
+      <h3 class="sub">动效</h3>
+      <div class="field">
+        <label for="ease">缓动</label>
+        <select id="ease">
+          <option value="decel" selected>减速（快进慢停）</option>
+          <option value="standard">标准（对称）</option>
+          <option value="spring">回弹</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="trig">触发时机</label>
+        <select id="trig">
+          <option value="hover" selected>悬停即动</option>
+          <option value="focus">仅焦点与状态变</option>
+          <option value="press">仅按下</option>
+        </select>
+        <span class="note2" id="trigNote"></span>
+      </div>
+      <div class="field">
+        <label for="reduce">减弱动效</label>
+        <select id="reduce">
+          <option value="auto" selected>跟随系统</option>
+          <option value="force">始终关闭动效</option>
+        </select>
+        <span class="note2">可跟随系统或始终关闭动效；关闭后仍保留即时颜色与状态反馈。</span>
+      </div>
+
+      <h3 class="sub">组件台</h3>
+      <div class="cmp" id="cmpBench"></div>
+    </section>
+
+    <!-- 05 看效果 -->
+    <section class="panel" id="s5">
+      <div class="panel__h"><span class="n">05</span><h2>看效果</h2></div>
+      <p class="panel__sub">
+        同一段内容，应用你选择的配色、尺寸与反馈。<strong>卡片保持稳定</strong>，
+        动效取决于你的选择，并尊重系统减弱动效设置。
+        组件的具体形态与反馈在<strong>第 04 步</strong>调。
+      </p>
+
+      <div class="stage">
+        <div class="stage__bar">
+          <span>PREVIEW</span>
+          <span id="pvName">待选</span>
+        </div>
+        <div class="pv" id="pv">
+          <div class="pv__top">
+            <span class="pv__brand">Meridian</span>
+            <span class="pv__nav">
+              <a href="#" onclick="return false">功能</a>
+              <a href="#" onclick="return false">定价</a>
+              <a href="#" onclick="return false">文档</a>
+            </span>
+          </div>
+          <h3 class="pv__h"><span class="pv__hl">三个月前</span><span class="pv__br">那个决定，现在还能查到</span></h3>
+          <p class="pv__p">
+            把每次会议、每个决定和它们的来龙去脉收在一处。不用整理，直接搜。
+            <span class="pv__tag">v2.4</span>
+          </p>
+          <div class="pv__acts">
+            <a class="pv__btn" href="#" onclick="return false">开始使用</a>
+            <a class="pv__btn pv__btn--g" href="#" onclick="return false">看文档</a>
+          </div>
+          <div class="pv__grid">
+            <div class="pv__cell pv__cell--a">
+              <h4>决定留痕</h4>
+              <p>谁在什么时候说了什么，落到具体那条讨论里。</p>
+            </div>
+            <div class="pv__cell">
+              <h4>跨会议检索</h4>
+              <p>搜一句话，命中三段会议里的七个相关决定。</p>
+            </div>
+            <div class="pv__cell">
+              <h4>自动归档</h4>
+              <p>会议结束即结构化，不用谁再去手动填表。</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 06 拿结果 -->
+    <section class="panel" id="s6">
+      <div class="panel__h"><span class="n">06</span><h2>拿结果</h2></div>
+      <p class="panel__sub">
+        接受当前配置后导出两份文件。<strong>把 <code>ui-tokens.json</code> 交给后续实现步骤</strong>，
+        <code>UI-DESIGN.md</code> 给人读：它写清这个项目的 UI 定位和不可协商项。
+      </p>
+
+      <div class="warnbox">
+        <b>导出前先看读数。</b>右侧有红字就说明这份配置不能直接用：
+        通常是次要文字或按钮底色没到 4.5:1。改完再导。
+      </div>
+
+      <h3 class="sub">ui-tokens.json</h3>
+      <div class="out">
+        <div class="out__h"><span>TOKENS · 交给实现</span><span id="jsonMeta">待生成</span></div>
+        <pre id="outJson" tabindex="0" aria-label="导出的 token JSON 预览"></pre>
+      </div>
+
+      <h3 class="sub">UI-DESIGN.md</h3>
+      <div class="out">
+        <div class="out__h"><span>DESIGN.md · 给人读</span><span id="mdMeta">待生成</span></div>
+        <pre id="outMd" tabindex="0" aria-label="导出的设计说明预览"></pre>
+      </div>
+
+      <p id="exportStatus" role="status" aria-live="polite" tabindex="-1"></p>
+      <div class="actions">
+        <button class="act act--p" type="button" id="dlJson">下载 ui-tokens.json</button>
+        <button class="act act--p" type="button" id="dlMd">下载 UI-DESIGN.md</button>
+        <button class="act" type="button" id="cpJson">复制 JSON</button>
+        <button class="act" type="button" id="cpMd">复制 Markdown</button>
+        <button class="act" type="button" id="reset">恢复视觉默认值</button>
+      </div>
+      <p style="margin-top:var(--s3);font-size:13px;color:var(--ink-3)">
+        下载在浏览器里落到你的「下载」目录；把两个文件放进项目根目录，AI 读到它们就会按这套设计定位来做界面。
+      </p>
+    </section>
+
+    <footer class="foot">
+      <span>zyb · 六套预设已核算基础颜色组合 · 零外部请求</span>
+    </footer>
+  </main>
+
+  <aside class="readout" aria-label="实时读数">
+    <p class="ro__t">实时读数</p>
+    <div id="roRows"></div>
+    <p class="ro__note">
+      正文线 4.5:1，大字线 3:1。这些数字是按 WCAG 相对亮度公式实时算的，不是标称值。
+    </p>
+  </aside>
+</div>
+
+<script>
+/* ============================================================
+   状态与渲染。零依赖，全部本地计算。
+   没有任何网络请求，这是硬约束，不是偏好。
+   ============================================================ */
+(function () {
+  'use strict';
+
+  /* ---------- 前期问选项 ---------- */
+  /* q1 用「项目性质」而不是「人群」。
+     这四类的差别不在于给谁看，而在于**评判机制不同**：
+       个人作品   评审是你自己，审美与记忆点权重最高
+       毕业设计   评审看推导过程，方法论可见性权重最高
+       企业项目   评审看可用性与系统感，克制与可维护权重最高
+       课程设计   评审按评分点核对，规范符合度权重最高
+     所以每项带 designConsequence：它会写进产物，并联动 q2 的建议。 */
+  var QUESTIONS = [
+    { id: 'q1', t: '这是哪一类项目？', hint: '评判机制不一样，设计重点就不一样。', opts: [
+      { v: 'portfolio', l: '个人作品',
+        consequence: '评审是你自己。记忆点权重最高，可以承担审美风险，但必须有一个「只有我能做」的元素。',
+        q2default: 'hire',
+        focus: '记忆点 / 个人辨识度' },
+      { v: 'thesis', l: '毕业设计',
+        consequence: '评审看推导过程。设计决策的理由、对比度实测、规范出处都要可见，过程比成品更重要。',
+        q2default: 'read',
+        focus: '推导可追溯 / 方法论可见' },
+      { v: 'enterprise', l: '企业项目',
+        consequence: '评审看可用性与系统感。克制、能维护、权限与状态清楚，比记忆点重要。',
+        q2default: 'signup',
+        focus: '信息层级 / 可维护性' },
+      { v: 'coursework', l: '课程设计',
+        consequence: '评审按评分点核对。栅格、字号阶、对比度、组件一致性都会被量化，规范符合度就是分数。',
+        q2default: 'read',
+        focus: '规范符合度 / 量化可查' }
+    ], d: 'portfolio' },
+    { id: 'q2', t: '它要让人完成什么？', hint: '一个动词。说不清动词，说明需求还没落地。', opts: [
+      { v: 'signup', l: '注册 / 开始使用' },
+      { v: 'read',    l: '读懂 / 学习' },
+      { v: 'buy',     l: '下单 / 付费' },
+      { v: 'hire',    l: '判断要不要合作' }
+    ], d: 'hire' },
+    { id: 'q3', t: '页面有多重？', hint: '内容密度决定留白策略。密度跟着内容走，不要什么都中等。', opts: [
+      { v: 'sparse',  l: '稀疏（大留白）' },
+      { v: 'normal',  l: '正常' },
+      { v: 'dense',   l: '密集（多栏密排）' }
+    ], d: 'normal' },
+    { id: 'q4', t: '浅底还是深底？', hint: '改变深浅偏好会切换对应预设，其他设置保留。', opts: [
+      { v: 'light', l: '浅底' },
+      { v: 'dark',  l: '深底' },
+      { v: 'auto',  l: '跟随题材定' }
+    ], d: 'auto' },
+    { id: 'q5', t: '能接受多少动效？', hint: '动效只在回答「刚才发生了什么」时才有资格出现。', opts: [
+      { v: 'none', l: '不要动效' },
+      { v: 'light',l: '只做反馈' },
+      { v: 'rich', l: '要有编排' }
+    ], d: 'light' }
+  ];
+
+  /* 六套预设。
+     accentRole 决定强调色能干什么，这是配色能不能用的关键信息：
+       'text'  : 可作正文与标签底（默认）
+       'block' : 只作色块/装饰。它在纸上必然低于 4.5，这是刻意的，
+                  不是缺陷。T1 的荧光标记笔就是这一类：
+                  压纸 1.06:1，但反过来深墨压它 11.82:1，完全可用。
+                  把它当文字色就会得到一份 1.06:1 的废配色。 */
+  var TPLS = [
+    { id: 'T1', name: '冷灰蓝 · 靛墨', for: '讲解 / 评审 / 文档',
+      ground: '#E9EDF1', surface: '#F7F9FB', ink: '#14274A', ink2: '#4F5D74',
+      accent: '#D9F24F', accentDp: '#B32C12', rule: '#C6CFDB',
+      rLg: 14, rMd: 10, rSm: 5, disp: 'serif', accentRole: 'block',
+      note: '强调色是荧光标记笔，accentRole 是 block：只做色块与下划高亮，绝不用于文字。' +
+            '要在这个底子上标重点，就反过来用深墨压黄底（11.82:1）。' },
+    { id: 'T2', name: '暖奶油 · 陶土', for: '信息页 / 索引 / 作品集',
+      ground: '#F4F1EA', surface: '#FAF8F3', ink: '#2A2622', ink2: '#6B6257',
+      accent: '#A34A28', accentDp: '#7A3316', rule: '#E3DDD0',
+      rLg: 6, rMd: 4, rSm: 3, disp: 'serif', accentRole: 'text',
+      note: '教科书式的暖纸底。陶土是这族的正统色，认准深陶土 #A34A28，别用亮陶土。' },
+    { id: 'T3', name: '纸白 · 朱橙', for: '手册 / 工单 / 工具页',
+      ground: '#F5F5F2', surface: '#FAFAF8', ink: '#16181A', ink2: '#686F76',
+      accent: '#C2410C', accentDp: '#9A3412', rule: '#DCDCD5',
+      rLg: 3, rMd: 3, rSm: 2, disp: 'sans', accentRole: 'text',
+      note: '无衬线重字 + 几乎零圆角。层级靠字号字重，不靠卡片阴影。' },
+    { id: 'T4', name: '墨地 · 芥末金', for: '深色落地页 / 夜间工具',
+      ground: '#131311', surface: '#1C1C19', ink: '#EFEDE6', ink2: '#9A968B',
+      accent: '#D9A441', accentDp: '#B8862B', rule: '#2E2E29',
+      rLg: 16, rMd: 10, rSm: 6, disp: 'sans', accentRole: 'text',
+      note: '全页锁死深色，中途绝不反色。注意这是真深墨，不是近黑冒充高级。' },
+    { id: 'T5', name: '灰白 · 松绿', for: '工具 / 文档 / 开源项目',
+      ground: '#EFF1EE', surface: '#F8FAF7', ink: '#1A211C', ink2: '#5C6B60',
+      accent: '#2F6B4F', accentDp: '#255740', rule: '#D5DCD6',
+      rLg: 8, rMd: 5, rSm: 3, disp: 'sans', accentRole: 'text',
+      note: '低饱和松绿配灰白，长时间阅读不累。技术文档类页面的稳妥选择。' },
+    { id: 'T6', name: '米白 · 砖红', for: '文化 / 展览 / 品牌页',
+      ground: '#FAF7F2', surface: '#FFFDF9', ink: '#2B2622', ink2: '#6E6660',
+      accent: '#A03A20', accentDp: '#822C16', rule: '#E6DFD4',
+      rLg: 2, rMd: 2, rSm: 2, disp: 'serif', accentRole: 'text',
+      note: '衬线 + 零圆角 + 发丝线，最接近印刷品的排版气质。' }
+  ];
+
+  var FONTS = {
+    sans:  '-apple-system, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif',
+    serif: 'Georgia, "Times New Roman", "Songti SC", "Noto Serif SC", "Source Han Serif SC", SimSun, serif'
+  };
+  var MONO = 'ui-monospace, SFMono-Regular, "JetBrains Mono", Consolas, monospace';
+
+  /* 组件配置。
+     每个维度给三档，且**默认值设最保守的那一档**。维度一多，
+     默认值就会变成「二十个默认值」的重灾区。每档的后果写在面板里，
+     不让用户以为选完只是打个标签。 */
+  var COMPONENTS = {
+    btnShape: { v: 'solid', note: {
+      solid: '实心：用于当前操作组的主要行动。',
+      outline: '描边 = 次行动，和主行动并排时用它。',
+      ghost: '幽灵：用于文字级行动，例如取消或稍后再说。'
+    } },
+    btnPress: { v: 'darken', note: {
+      darken: '变深：最稳，任意背景上都成立。',
+      sink: '内缩 1px：有物理感，但密集排布时容易显脏。',
+      none: '无：靠底色变化就够了，按下反馈不是必需的。'
+    } },
+    btnSize: { v: '1.18' },
+    inpShape: { v: 'boxed', note: {
+      boxed: '全框：用可辨识的边界区分输入区域。',
+      line: '下划线：保持标签与可辨识的底边，不能只依赖 placeholder。',
+      fill: '填充：适合短表单，长表单会显得笨重。'
+    } },
+    inpFocus: { v: 'border', note: {
+      border: '边框变色：最省事，任何形态下都成立。',
+      glow: '外发光：更明显，但在浅底上要控制 alpha，否则显脏。',
+      none: '只有焦点环：键盘可见，鼠标用户几乎察觉不到。'
+    } },
+    selShape: { v: 'native' },
+    tabInd: { v: 'line' },
+    numFont: { v: 'mono', note: {
+      mono: '等宽 + tabular：数字等宽对齐，跳动最小。读数与表格必用。',
+      body: '与正文同族，仍启用等宽数字以保持对齐。',
+      serif: '衬线数字：编辑感强，适合正文里的引文，不适合读数。'
+    } },
+    hTrack: { v: '-0.028em' },
+    ease: { v: 'decel', note: {
+      decel: '减速：进场用。快进慢停，读起来最利落。',
+      standard: '标准：位移与颜色变化用它，匀速最好判断。',
+      spring: '回弹：最容易被滥用。超过 300ms 的动效不要用回弹。'
+    } },
+    trig: { v: 'hover', note: {
+      hover: '悬停即动：反馈最快，但也是卡片集体上浮的来源。',
+      focus: '仅焦点与状态变：最克制，鼠标用户要移动才知道。',
+      press: '仅按下：最安静，但 hover 就没有任何提示了。'
+    } },
+    reduce: { v: 'auto' }
+  };
+
+  var EASES = {
+    decel: 'cubic-bezier(0.16, 1, 0.3, 1)',
+    standard: 'cubic-bezier(0.4, 0, 0.2, 1)',
+    spring: 'cubic-bezier(0.34, 1.56, 0.64, 1)'
+  };
+
+  var state = {
+    q: { q1: 'portfolio', q2: 'hire', q3: 'normal', q4: 'auto', q5: 'light', q6: '' },
+    tpl: 'T3',
+    c: null, r: null, dens: 1, pill: '3px', disp: 'sans', hWeight: 700, mBase: 280,
+    accentRole: 'text',   // 'text' 可作文字与标签底；'block' 只作色块
+    accentRolePinned: false, // 用户是否手动指定过角色
+    q2Pinned: false, sampleTab: 0,
+    cmp: null            // 组件配置，初始化时从 COMPONENTS 取默认值
+  };
+
+  /* ---------- 工具 ---------- */
+  function $(id) { return document.getElementById(id); }
+  function hex2rgb(h) {
+    h = String(h).trim().replace(/^#/, '');
+    if (/^[0-9a-f]{3}$/i.test(h)) h = h[0]+h[0]+h[1]+h[1]+h[2]+h[2];
+    if (!/^[0-9a-f]{6}$/i.test(h)) return null;
+    return [parseInt(h.slice(0,2),16), parseInt(h.slice(2,4),16), parseInt(h.slice(4,6),16)];
+  }
+  function lum(rgb) {
+    var f = rgb.map(function (v) {
+      var c = v / 255;
+      return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+    });
+    return 0.2126 * f[0] + 0.7152 * f[1] + 0.0722 * f[2];
+  }
+  function ratio(a, b) {
+    var x = hex2rgb(a), y = hex2rgb(b);
+    if (!x || !y) return null;
+    var l1 = lum(x), l2 = lum(y);
+    var hi = Math.max(l1, l2), lo = Math.min(l1, l2);
+    return (hi + 0.05) / (lo + 0.05);
+  }
+  function fmt(r) { return r === null ? '无' : r.toFixed(2) + ':1'; }
+  function nowStamp() {
+    var d = new Date();
+    function p(n) { return n < 10 ? '0' + n : '' + n; }
+    return d.getFullYear() + '-' + p(d.getMonth()+1) + '-' + p(d.getDate()) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
+  }
+  function esc(s) {
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+
+  function curTpl() {
+    for (var i = 0; i < TPLS.length; i++) if (TPLS[i].id === state.tpl) return TPLS[i];
+    return TPLS[0];
+  }
+
+  /* 强调色角色自动判定。
+     用户没手动 pin 时，每次改强调色都重判：
+     纸色字压它 >= 4.5 才算可作文字，否则降级为色块专用。 */
+  function resolveAccentRole() {
+    if (state.accentRolePinned) return;
+    state.accentRole = ratio(state.c.ground, state.c.accent) >= 4.5 ? 'text' : 'block';
+  }
+
+  function applyTpl(id) {
+    var t = null;
+    for (var i = 0; i < TPLS.length; i++) if (TPLS[i].id === id) t = TPLS[i];
+    if (!t) return;
+    state.tpl = t.id;
+    state.c = { ground: t.ground, surface: t.surface, ink: t.ink, ink2: t.ink2, accent: t.accent, accentDp: t.accentDp, rule: t.rule };
+    state.r = { lg: t.rLg, md: t.rMd, sm: t.rSm };
+    state.disp = t.disp;
+    state.accentRole = t.accentRole;
+    state.accentRolePinned = false;
+    syncColorInputs();
+    render();
+  }
+
+  /* ---------- 渲染：前期问 ---------- */
+  QUESTIONS.forEach(function (q) {
+    var host = $(q.id);
+    /* 题面与提示从数据渲染，避免 HTML 里写死一份、数据里又写一份，两处不同步。 */
+    if ($(q.id + 't')) $(q.id + 't').textContent = q.t;
+    if ($(q.id + 'h')) $(q.id + 'h').textContent = q.hint;
+    host.innerHTML = q.opts.map(function (o) {
+      return '<label class="opt"><input type="radio" name="' + q.id + '" value="' + o.v + '"' +
+        (state.q[q.id] === o.v ? ' checked' : '') + '><span class="opt__dot" aria-hidden="true"></span>' + o.l + '</label>';
+    }).join('');
+    host.addEventListener('change', function (e) {
+      state.q[q.id] = e.target.value;
+      if (q.id === 'q2') state.q2Pinned = true;
+      if (q.id === 'q3') state.dens = { sparse: 1.18, normal: 1, dense: 0.86 }[e.target.value];
+      if (q.id === 'q5') {
+        state.mBase = { none: 0, light: 280, rich: 400 }[e.target.value];
+        if (e.target.value !== 'none') state.cmp.reduce = 'auto';
+      }
+      markStep(0);
+      if (q.id === 'q4') autoPickByMode();
+      if (q.id === 'q1') applyQ1Consequences();
+      paintConsequences();
+      render();
+    });
+  });
+
+  /* q1（项目性质）选中后，把它的设计后果显示出来，并联动建议 q2。
+     注意：改完 state.q.q2 必须调 repaintRadios()，
+     否则 state 变了但 DOM 里的 radio 仍停在旧选中项，状态与界面不一致。 */
+  function q1Option() {
+    var q = QUESTIONS[0];
+    for (var i = 0; i < q.opts.length; i++) if (q.opts[i].v === state.q.q1) return q.opts[i];
+    return q.opts[0];
+  }
+  function applyQ1Consequences() {
+    var o = q1Option();
+    if (!state.q2Pinned && o.q2default) state.q.q2 = o.q2default;
+    repaintRadios();
+  }
+
+  function paintConsequences() {
+    var o = q1Option();
+    var c = $('q1c');
+    if (!c) return;
+    c.innerHTML = '<b>设计重点：</b>' + o.focus + '。' + o.consequence;
+    c.hidden = false;
+  }
+  function repaintRadios() {
+    QUESTIONS.forEach(function (q) {
+      Array.prototype.forEach.call(document.querySelectorAll('input[name="' + q.id + '"]'), function (i) {
+        i.checked = (i.value === state.q[q.id]);
+      });
+    });
+    paintConsequences();
+  }
+  $('q6').addEventListener('input', function (e) { state.q.q6 = e.target.value; renderOut(renderReadout()); });
+
+  // 用户切换深浅偏好时切换对应预设，其他视觉参数保留。
+  function autoPickByMode() {
+    var want = state.q.q4;
+    if (want === 'light' || want === 'dark') {
+      var dark = state.c && lum(hex2rgb(state.c.ground)) < 0.35;
+      if ((want === 'dark') !== dark) applyTpl(want === 'dark' ? 'T4' : 'T2');
+    }
+  }
+
+  /* ---------- 渲染：模板卡 ---------- */
+  function renderTpls() {
+    $('tpls').innerHTML = TPLS.map(function (t) {
+      var sw = ['ground','surface','ink','ink2','accent','accentDp','rule'].map(function (k) {
+        return '<i style="background:' + t[k] + '"></i>';
+      }).join('');
+      var rInk = ratio(t.ink, t.ground), rInk2 = ratio(t.ink2, t.ground);
+      return '<label class="tcard">' +
+        '<input type="radio" name="tpl" value="' + t.id + '"' + (state.tpl === t.id ? ' checked' : '') + '>' +
+        '<span class="tcard__sw">' + sw + '</span>' +
+        '<span class="tcard__b">' +
+          '<span class="tcard__n">' + t.name + '<em>' + t.id + '</em></span>' +
+          '<span class="tcard__d">' + t.for + '</span>' +
+          '<span class="tcard__r">墨 ' + fmt(rInk) + ' · 次 ' + fmt(rInk2) + '</span>' +
+        '</span></label>';
+    }).join('');
+  }
+
+  /* 监听挂在容器上（事件委托），不能挂一次就解绑。
+     实测踩过：用 { once: true } 会让第二次切模板完全失效。 */
+  $('tpls').addEventListener('change', function (e) {
+    if (e.target.name !== 'tpl') return;
+    applyTpl(e.target.value);
+    markStep(1);
+  });
+
+  /* ---------- 渲染：读数栏 ---------- */
+  function contrastChecks() {
+    var c = state.c;
+    var onAccent = state.accentRole === 'block' ? c.ink : c.ground;
+    var pairs = [
+      ['正文 / 底色', c.ink, c.ground, 4.5], ['次要 / 底色', c.ink2, c.ground, 4.5],
+      ['正文 / 面板', c.ink, c.surface, 4.5], ['次要 / 面板', c.ink2, c.surface, 4.5],
+      ['按钮文字 / 按钮底', c.ground, c.accentDp, 4.5], ['文字 / 强调底', onAccent, c.accent, 4.5],
+      ['控件边界 / 底色', c.ink2, c.ground, 3], ['控件边界 / 面板', c.ink2, c.surface, 3]
+    ];
+    if (state.accentRole === 'text') {
+      pairs.push(['强调文字 / 底色', c.accent, c.ground, 4.5], ['强调文字 / 面板', c.accent, c.surface, 4.5]);
+    }
+    return pairs.map(function (p) {
+      var value = ratio(p[1], p[2]);
+      return { label: p[0], foreground: p[1], background: p[2], threshold: p[3], ratio: value, passed: value !== null && value >= p[3] };
+    });
+  }
+
+  function radiusCount() {
+    return [state.r.lg, state.r.md, state.r.sm, parseFloat(state.pill)].filter(function (v,i,a) { return a.indexOf(v) === i; }).length;
+  }
+
+  function renderReadout() {
+    var checks = contrastChecks();
+    var blockers = checks.filter(function (c) { return !c.passed; }).map(function (c) { return c.label + '只有 ' + fmt(c.ratio) + '，需 ' + c.threshold + ':1'; });
+    COLOR_MAP.forEach(function (m) {
+      if ($(m[0] + 'Hex').getAttribute('aria-invalid') === 'true') blockers.push($(m[0] + 'Hex').getAttribute('aria-label') + '格式无效');
+    });
+    $('roRows').innerHTML = checks.map(function (c) {
+      return '<div class="ro__row"><span>' + c.label + '（需 ' + c.threshold + '）</span><span class="v ' + (c.passed ? 'ok' : 'bad') + '">' + fmt(c.ratio) + '</span></div>';
+    }).join('') + '<div class="ro__row"><span>圆角种类</span><span>' + radiusCount() + '</span></div>' +
+      '<div class="ro__row"><span>动效基准</span><span>' + state.mBase + 'ms</span></div>';
+    return blockers;
+  }
+
+  /* ---------- 渲染：预览 ---------- */
+  function renderPreview() {
+    var c = state.c, r = state.r, pv = $('pv');
+    var tokens = buildTokens([]);
+    pv.setAttribute('data-trigger', state.cmp.trig);
+    var isBlock = state.accentRole === 'block';
+    pv.style.setProperty('--pv-ground', c.ground);
+    pv.style.setProperty('--pv-surface', c.surface);
+    pv.style.setProperty('--pv-ink', c.ink);
+    pv.style.setProperty('--pv-ink-2', c.ink2);
+    pv.style.setProperty('--pv-accent', c.accent);
+    pv.style.setProperty('--pv-accent-dp', c.accentDp);
+    pv.style.setProperty('--pv-rule', c.rule);
+    pv.style.setProperty('--pv-r-lg', r.lg + 'px');
+    pv.style.setProperty('--pv-r-md', r.md + 'px');
+    pv.style.setProperty('--pv-r-sm', r.sm + 'px');
+    pv.style.setProperty('--pv-r-pill', state.pill);
+    pv.style.setProperty('--pv-font-display', FONTS[state.disp]);
+    pv.style.setProperty('--pv-font-body', FONTS[state.disp === 'serif' ? 'serif' : 'sans']);
+    pv.style.setProperty('--pv-mono', state.cmp.numFont === 'mono' ? MONO : state.cmp.numFont === 'serif' ? FONTS.serif : tokens.font.body);
+    pv.style.setProperty('--pv-h-track', state.cmp.hTrack);
+    pv.style.setProperty('--pv-control', c.ink2);
+    pv.style.setProperty('--pv-ease', tokens.motion.easing);
+    pv.style.setProperty('--pv-btn-y', Math.round(9 * state.cmp.btnSize) + 'px');
+    pv.style.setProperty('--pv-btn-x', Math.round(16 * state.cmp.btnSize) + 'px');
+    var primary = pv.querySelector('.pv__btn');
+    primary.setAttribute('data-shape', state.cmp.btnShape);
+    primary.setAttribute('data-press', state.cmp.btnPress);
+    pv.style.setProperty('--pv-h-weight', state.hWeight);
+    pv.style.setProperty('--pv-mt', state.mBase + 'ms');
+    pv.style.setProperty('--pv-mf', Math.round(state.mBase / 2) + 'ms');
+    /* 高亮与标签在 block 角色下反向用：底是强调色，字是墨色 */
+    pv.style.setProperty('--pv-on-accent', isBlock ? c.ink : c.ground);
+    var d = state.dens;
+    pv.style.setProperty('--pv-s2', Math.round(8 * d) + 'px');
+    pv.style.setProperty('--pv-s3', Math.round(12 * d) + 'px');
+    pv.style.setProperty('--pv-s4', Math.round(16 * d) + 'px');
+    pv.style.setProperty('--pv-s5', tokens.space.scale[4] + 'px');
+    pv.style.setProperty('--pv-s6', tokens.space.scale[5] + 'px');
+    pv.style.fontSize = tokens.font.baseSizePx + 'px';
+    $('pvName').textContent = curTpl().id + ' · ' + curTpl().name + (isBlock ? '（强调色作色块）' : '');
+
+    var hint = $('accentRoleHint');
+    if (hint) {
+      var rFwd = ratio(c.ground, c.accent), rRev = ratio(c.ink, c.accent);
+      hint.textContent = isBlock
+        ? ('色块专用：纸色字压它 ' + fmt(rFwd) + '，墨色压它 ' + fmt(rRev) + '。高亮与标签已自动反向。')
+        : ('可作文字：纸色字压它 ' + fmt(rFwd) + '。');
+    }
+  }
+
+  /* ---------- 产物 ---------- */
+  function buildTokens(blockers) {
+    var c = state.c, r = state.r, t = curTpl();
+    var isBlock = state.accentRole === 'block';
+    var qLabels = {};
+    QUESTIONS.forEach(function (q) {
+      var hit = null;
+      q.opts.forEach(function (o) { if (o.v === state.q[q.id]) hit = o.l; });
+      qLabels[q.id] = hit;
+    });
+    return {
+      $schema: 'myui/tokens@1',
+      meta: {
+        producer: 'zyb-ui-design', rulesVersion: '2.0', rulesSource: 'zyb-ui-design/SKILL.md',
+        generated: nowStamp(),
+        template: { id: t.id, name: t.name, intendedFor: t.for, note: t.note },
+        brief: {
+          projectType: qLabels.q1,
+          projectTypeId: state.q.q1,
+          designFocus: q1Option().focus,
+          designConsequence: q1Option().consequence,
+          jobToBeDone: qLabels.q2, density: qLabels.q3,
+          groundPreference: qLabels.q4, motionTolerance: qLabels.q5,
+          uniqueOneLiner: state.q.q6 || '(未填)'
+        },
+        verified: {
+          method: 'WCAG 相对亮度，配置色值计算',
+          scope: 'token-color-pairs', renderedPage: 'not-tested', checks: contrastChecks(),
+          inkOnGround: ratio(c.ink, c.ground),
+          ink2OnGround: ratio(c.ink2, c.ground),
+          inkOnSurface: ratio(c.ink, c.surface),
+          buttonTextOnAccentDp: ratio(c.ground, c.accentDp),
+          accentOnGround: ratio(c.accent, c.ground),
+          groundTextOnAccent: ratio(c.ground, c.accent),
+          inkOnAccent: ratio(c.ink, c.accent),
+          accentRole: isBlock ? 'block' : 'text',
+          accentUsage: isBlock
+            ? 'accent 只作色块与高亮底；其上的文字用 ink（不是纸色）。绝不可作正文色。'
+            : 'accentDeep 按钮底 / accent 色块与标签 / accent 不作长段正文色',
+          thresholds: { body: 4.5, large: 3 },
+          blockers: blockers
+        }
+      },
+      color: {
+        ground: c.ground, surface: c.surface, ink: c.ink, ink2: c.ink2,
+        accent: c.accent, accentDeep: c.accentDp, rule: c.rule, control: c.ink2,
+        onAccent: isBlock ? c.ink : c.ground
+      },
+      space: {
+        base: 4,
+        scale: [4, 8, 12, 16, 24, 40, 64].map(function (v) { return Math.round(v * state.dens); }),
+        density: state.dens
+      },
+      radius: { lg: r.lg, md: r.md, sm: r.sm, button: state.pill, kinds: radiusCount() },
+      font: {
+        display: state.disp === 'serif' ? FONTS.serif : FONTS.sans,
+        body: state.disp === 'serif' ? FONTS.serif : FONTS.sans,
+        mono: MONO,
+        headingWeight: state.hWeight,
+        baseSizePx: Number((16 * state.dens).toFixed(1)),
+        lineHeight: 1.7
+      },
+      motion: {
+        baseMs: state.mBase,
+        fastMs: Math.round(state.mBase / 2),
+        easing: EASES[state.cmp.ease],
+        easingName: state.cmp.ease,
+        trigger: state.cmp.trig,
+        reducedMotion: state.cmp.reduce === 'auto' ? 'follow-system' : 'force-off',
+        rule: '尊重用户与系统的减弱动效设置，内容和即时状态反馈仍须可见。'
+      },
+      components: {
+        button: {
+          shape: state.cmp.btnShape,
+          press: state.cmp.btnPress,
+          paddingScale: state.cmp.btnSize,
+          hoverFeedback: state.cmp.trig === 'hover',
+          rule: '同一操作组区分主次，禁用状态保持可辨识。'
+        },
+        input: {
+          shape: state.cmp.inpShape,
+          focusFeedback: state.cmp.inpFocus,
+          rule: '焦点反馈必须在浅底上可辨。placeholder 不是标签，不能替代标签。'
+        },
+        select: {
+          shape: state.cmp.selShape,
+          rule: '选项区用原生 select。自绘要自己处理键盘、屏幕阅读器与移动端滚轮。'
+        },
+        tabs: {
+          indicator: state.cmp.tabInd,
+          rule: '指示方式与页面调性一致。竖条最安静，下划线最常见，填充块最重。'
+        },
+        badge: {
+          textTone: 'mono-small',
+          rule: '强调色只出现在色块上，文字用等宽小字，不用全大写。'
+        }
+      },
+      typography2: {
+        numberFont: state.cmp.numFont,
+        headingTracking: state.cmp.hTrack,
+        rule: '读数与表格必须用等宽数字（tabular），否则数字左右跳。'
+      },
+      cssVariables: [
+        '--ground:' + c.ground, '--surface:' + c.surface, '--ink:' + c.ink,
+        '--ink-2:' + c.ink2, '--accent:' + c.accent, '--accent-deep:' + c.accentDp, '--rule:' + c.rule,
+        '--on-accent:' + (isBlock ? c.ink : c.ground), '--control:' + c.ink2, '--r-button:' + state.pill,
+        '--r-lg:' + r.lg + 'px', '--r-md:' + r.md + 'px', '--r-sm:' + r.sm + 'px',
+        '--t-base:' + state.mBase + 'ms',
+        '--ease:' + EASES[state.cmp.ease],
+        '--btn-shape:' + state.cmp.btnShape, '--btn-press:' + state.cmp.btnPress,
+        '--input-shape:' + state.cmp.inpShape, '--select-shape:' + state.cmp.selShape,
+        '--tab-indicator:' + state.cmp.tabInd, '--motion-trigger:' + state.cmp.trig
+      ].join('; ')
+    };
+  }
+
+  function buildMd(blockers) {
+    var tk = buildTokens(blockers);
+    var b = tk.meta.brief;
+    var L = ['# UI 设计定位 · ' + tk.meta.template.name, '',
+      '> 由 zyb 视觉参数选择器生成。规则版本 ' + tk.meta.rulesVersion,
+      '> 设计规则来源：' + tk.meta.rulesSource, '',
+      '## 一句话定位', '', b.uniqueOneLiner, '',
+      '## 需求与选择', '', '| 项目 | 选择 |', '|---|---|',
+      '| 项目背景 | ' + b.projectType + ' |', '| 核心任务 | ' + b.jobToBeDone + ' |',
+      '| 密度 | ' + b.density + ' |', '| 深浅底 | ' + b.groundPreference + ' |',
+      '| 动效偏好 | ' + b.motionTolerance + ' |', '',
+      '设计重点：' + b.designFocus + '。' + b.designConsequence, '',
+      '## 令牌', '', '```css', ':root {',
+      tk.cssVariables.split('; ').map(function (v) { return '  ' + v + ';'; }).join('\n'),
+      '}', '```', '',
+      '间距：' + tk.space.scale.join(' / ') + ' px；正文 ' + tk.font.baseSizePx + 'px，行高 ' + tk.font.lineHeight + '。',
+      '展示字体：' + tk.font.display, '正文字体：' + tk.font.body,
+      '圆角种类：' + tk.radius.kinds + '；按钮圆角：' + tk.radius.button, '',
+      '## 组件与动效', '',
+      '- 按钮：' + tk.components.button.shape + '；按下 ' + tk.components.button.press + '；内边距 ×' + tk.components.button.paddingScale,
+      '- 输入框：' + tk.components.input.shape + '；焦点 ' + tk.components.input.focusFeedback,
+      '- 下拉：' + tk.components.select.shape + '；标签页：' + tk.components.tabs.indicator,
+      '- 动效：' + tk.motion.baseMs + 'ms；快反馈 ' + tk.motion.fastMs + 'ms；缓动 ' + tk.motion.easing,
+      '- 触发：' + tk.motion.trigger + '；减弱动效：' + tk.motion.reducedMotion,
+      '- 数字字体：' + tk.typography2.numberFont + '；标题字距：' + tk.typography2.headingTracking, '',
+      '## 配置颜色计算', '', '| 组合 | 比值 | 要求 | 判定 |', '|---|---|---|---|'];
+    tk.meta.verified.checks.forEach(function (c) {
+      L.push('| ' + c.label + ' | ' + fmt(c.ratio) + ' | ' + c.threshold + ':1 | ' + (c.passed ? '通过' : '不通过') + ' |');
+    });
+    L.push('', '强调色角色：' + tk.meta.verified.accentRole + '；其上文字使用 ' + tk.color.onAccent + '。', '',
+      '## 交接与验证范围', '',
+      '这里只校验列出的纯色参数组合，真实页面尚未验收。实现前补齐内容结构与布局，保留项目现有组件和用户确认的参数。',
+      '设计偏好与项目约束以 zyb-ui-design 主流程为准，不从预设强加零网络、固定字体或统一装饰禁令。',
+      '实现后检查实际状态、键盘、视口、字体和减弱动效。');
+    L.push('', blockers.length ? '配置未通过：' + blockers.join('；') : '配置校验通过；真实页面尚未验收。');
+    return L.join('\n');
+  }
+
+  function renderOut(blockers) {
+    var json = buildTokens(blockers);
+    var md = buildMd(blockers);
+    $('outJson').textContent = JSON.stringify(json, null, 2);
+    $('outMd').textContent = md;
+    $('jsonMeta').textContent = json.cssVariables.split('; ').length + ' 个 CSS 变量 · ' + Object.keys(json.color).length + ' 色';
+    ['dlJson','dlMd','cpJson','cpMd'].forEach(function (id) { $(id).disabled = blockers.length > 0; });
+    $('exportStatus').textContent = blockers.length ? '请先修正：' + blockers.join('；') : '配置校验通过；真实页面尚未验收。';
+    $('mdMeta').textContent = md.split('\n').length + ' 行';
+    $('stamp').textContent = json.meta.generated + ' · ' + state.tpl;
+    return { json: json, md: md };
+  }
+
+  /* ---------- 总渲染 ---------- */
+  /* 组件与页面预览共享所选令牌，工具栏保留自己的主题。 */
+  function renderBench() {
+    var k = state.cmp, c = state.c;
+    var host = $('cmpBench');
+    var states = ['常态', '悬停', '焦点', '禁用'];
+    function cells(make) {
+      return '<div class="cmp__grid">' + states.map(function (label, i) {
+        return '<div class="cmp__cell"><p class="cmp__lab">' + label + '</p>' + make(i, label) + '</div>';
+      }).join('') + '</div>';
+    }
+    function props(i) { return (i === 3 ? ' disabled' : '') + (i === 1 ? ' data-preview="hover"' : i === 2 ? ' data-preview="focus"' : ''); }
+    function block(title, body) { return '<div class="cmp"><div class="cmp__h"><span class="cmp__n">' + title + '</span></div>' + body + '</div>'; }
+    var parts = [];
+    parts.push(block('按钮', cells(function (i) {
+      return '<button type="button" class="cbtn cbtn--' + k.btnShape + '" data-press="' + k.btnPress + '"' + props(i) + '>开始使用</button>';
+    })));
+    parts.push(block('输入框', cells(function (i, label) {
+      return '<input type="text" class="cinp cinp--' + k.inpShape + '" data-focus="' + k.inpFocus + '" aria-label="邮箱（' + label + '样例）" placeholder="邮箱"' + props(i) + '>';
+    })));
+    parts.push(block('下拉', cells(function (i, label) {
+      return '<select class="csel csel--' + k.selShape + '" aria-label="排序（' + label + '样例）"' + props(i) + '><option>按最近更新</option><option>按名称</option></select>';
+    })));
+    parts.push(block('标签页（可切换）', '<div class="cmp__grid" style="grid-template-columns:1fr"><div role="tablist" aria-label="组件示例" class="ctabs">' +
+      ['概览','决定','讨论'].map(function (label, i) {
+        return '<button type="button" role="tab" id="demo-tab-' + i + '" aria-controls="demo-panel" aria-selected="' + (i === state.sampleTab) + '" tabindex="' + (i === state.sampleTab ? 0 : -1) + '" class="ctab ctab--' + k.tabInd + '">' + label + '</button>';
+      }).join('') + '</div><div role="tabpanel" id="demo-panel" aria-labelledby="demo-tab-' + state.sampleTab + '">' + ['概览内容','决定内容','讨论内容'][state.sampleTab] + '</div></div>'));
+    parts.push(block('标签与数字样例', '<div class="cmp__grid"><span class="cbadge">v2.4</span><span class="cnum">12,345.67</span></div>'));
+    host.innerHTML = parts.join('');
+    host.setAttribute('data-trigger', k.trig);
+    var variables = {
+      '--c-ease': EASES[k.ease], '--c-mt': state.mBase + 'ms', '--c-mf': Math.round(state.mBase / 2) + 'ms',
+      '--c-r': state.r.sm + 'px', '--c-acc': c.accent, '--c-accdp': c.accentDp, '--c-ink': c.ink,
+      '--c-ink2': c.ink2, '--c-rule': c.rule, '--c-control': c.ink2, '--c-bg': c.surface, '--c-fill': c.ground,
+      '--c-on-dp': c.ground, '--c-on-accent': state.accentRole === 'block' ? c.ink : c.ground,
+      '--c-accPad': Math.round(9 * k.btnSize) + 'px', '--c-accPadX': Math.round(16 * k.btnSize) + 'px',
+      '--c-font-body': FONTS[state.disp], '--c-number-font': k.numFont === 'mono' ? MONO : k.numFont === 'serif' ? FONTS.serif : FONTS[state.disp]
+    };
+    Object.keys(variables).forEach(function (key) { host.style.setProperty(key, variables[key]); });
+  }
+
+  function selectDemoTab(index, focus) {
+    var tabs = $('cmpBench').querySelectorAll('[role="tab"]');
+    state.sampleTab = (index + tabs.length) % tabs.length;
+    tabs.forEach(function (tab, i) { tab.setAttribute('aria-selected', String(i === state.sampleTab)); tab.tabIndex = i === state.sampleTab ? 0 : -1; });
+    $('demo-panel').textContent = ['概览内容','决定内容','讨论内容'][state.sampleTab];
+    $('demo-panel').setAttribute('aria-labelledby', tabs[state.sampleTab].id);
+    if (focus) tabs[state.sampleTab].focus();
+  }
+  $('cmpBench').addEventListener('click', function (e) {
+    var tab = e.target.closest('[role="tab"]');
+    if (tab) selectDemoTab(Number(tab.id.split('-').pop()), false);
+  });
+  $('cmpBench').addEventListener('keydown', function (e) {
+    if (!e.target.matches('[role="tab"]')) return;
+    var index = Number(e.target.id.split('-').pop());
+    if (e.key === 'ArrowRight') index++;
+    else if (e.key === 'ArrowLeft') index--;
+    else if (e.key === 'Home') index = 0;
+    else if (e.key === 'End') index = 2;
+    else return;
+    e.preventDefault(); selectDemoTab(index, true);
+  });
+
+  /* 各维度的后果说明，渲染到面板里 */
+  function renderCmpNotes() {
+    var k = state.cmp;
+    var set = function (id, txt) { var e = $(id); if (e) e.textContent = txt || ''; };
+    set('btnPressNote', COMPONENTS.btnPress.note[k.btnPress]);
+    set('inpFocusNote', COMPONENTS.inpFocus.note[k.inpFocus]);
+    set('numFontNote', COMPONENTS.numFont.note[k.numFont]);
+    set('trigNote', COMPONENTS.trig.note[k.trig]);
+  }
+
+  function render() {
+    if (!state.c) return;
+    resolveAccentRole();
+    syncControls();
+    var blockers = renderReadout();
+    renderPreview();
+    renderBench();
+    renderCmpNotes();
+    renderOut(blockers);
+  }
+
+  /* ---------- 控件绑定 ---------- */
+  var COLOR_MAP = [
+    ['cGround','ground'], ['cSurface','surface'], ['cInk','ink'],
+    ['cInk2','ink2'], ['cAccent','accent'], ['cAccentDp','accentDp']
+  ];
+  function syncControls() {
+    if (state.q.q4 !== 'auto') state.q.q4 = lum(hex2rgb(state.c.ground)) < 0.35 ? 'dark' : 'light';
+    ['lg','md','sm'].forEach(function (key) {
+      var id = { lg: 'rLg', md: 'rMd', sm: 'rSm' }[key];
+      $(id).value = state.r[key]; $(id + 'V').textContent = state.r[key] + 'px';
+    });
+    $('rPill').value = state.pill; $('dens').value = String(state.dens); $('fDisp').value = state.disp;
+    $('hWeight').value = state.hWeight; $('mBase').value = state.mBase; $('mBaseV').textContent = state.mBase + 'ms';
+    $('mBase').disabled = state.cmp.reduce === 'force';
+    $('accentRole').value = state.accentRolePinned ? state.accentRole : 'auto';
+    Object.keys(COMPONENTS).forEach(function (key) { $(key).value = state.cmp[key]; });
+    document.querySelectorAll('input[name="tpl"]').forEach(function (input) { input.checked = input.value === state.tpl; });
+    repaintRadios();
+  }
+
+  function syncColorInputs() {
+    COLOR_MAP.forEach(function (m) {
+      $(m[0]).value = state.c[m[1]];
+      $(m[0] + 'Hex').value = state.c[m[1]].toUpperCase();
+      $(m[0] + 'Hex').removeAttribute('aria-invalid');
+      $(m[0] + 'Hex').setCustomValidity('');
+    });
+  }
+  COLOR_MAP.forEach(function (m) {
+    $(m[0]).addEventListener('input', function (e) {
+      state.c[m[1]] = e.target.value.toUpperCase();
+      $(m[0] + 'Hex').value = state.c[m[1]];
+      $(m[0] + 'Hex').removeAttribute('aria-invalid');
+      $(m[0] + 'Hex').setCustomValidity('');
+      markStep(2); render();
+    });
+    $(m[0] + 'Hex').addEventListener('change', function (e) {
+      var rgb = hex2rgb(e.target.value);
+      if (!rgb) { e.target.setAttribute('aria-invalid', 'true'); e.target.setCustomValidity('请输入有效的十六进制颜色'); render(); return; }
+      state.c[m[1]] = '#' + rgb.map(function (v) { return v.toString(16).padStart(2, '0'); }).join('').toUpperCase();
+      e.target.value = state.c[m[1]];
+      $(m[0]).value = state.c[m[1]];
+      $(m[0] + 'Hex').removeAttribute('aria-invalid');
+      $(m[0] + 'Hex').setCustomValidity('');
+      markStep(2); render();
+    });
+  });
+  $('accentRole').addEventListener('change', function (e) {
+    if (e.target.value === 'auto') { state.accentRolePinned = false; resolveAccentRole(); }
+    else { state.accentRolePinned = true; state.accentRole = e.target.value; }
+    markStep(2); render();
+  });
+
+  [['rLg','lg'],['rMd','md'],['rSm','sm']].forEach(function (m) {
+    $(m[0]).addEventListener('input', function (e) {
+      state.r[m[1]] = +e.target.value;
+      $(m[0] + 'V').textContent = e.target.value + 'px';
+      markStep(2); render();
+    });
+  });
+  $('rPill').addEventListener('change', function (e) { state.pill = e.target.value; markStep(2); render(); });
+  $('dens').addEventListener('change', function (e) { state.dens = +e.target.value; state.q.q3 = state.dens < 1 ? 'dense' : state.dens > 1 ? 'sparse' : 'normal'; markStep(2); render(); });
+  $('fDisp').addEventListener('change', function (e) { state.disp = e.target.value; markStep(2); render(); });
+  $('hWeight').addEventListener('change', function (e) { state.hWeight = +e.target.value; markStep(2); render(); });
+  $('mBase').addEventListener('input', function (e) {
+    state.mBase = state.cmp.reduce === 'force' ? 0 : +e.target.value;
+    state.q.q5 = state.mBase === 0 ? 'none' : state.mBase > 320 ? 'rich' : 'light';
+    $('mBaseV').textContent = e.target.value + 'ms';
+    markStep(2); render();
+  });
+
+  /* 组件维度绑定。默认值来自 COMPONENTS，不另写一份，避免两处不同步。 */
+  Object.keys(COMPONENTS).forEach(function (key) {
+    var el = $(key);
+    if (!el) return;
+    el.value = COMPONENTS[key].v;
+    el.addEventListener('change', function (e) {
+      var v = e.target.value;
+      state.cmp[key] = (key === 'btnSize') ? +v : v;
+      if (key === 'reduce' && v === 'force') { state.mBase = 0; state.q.q5 = 'none'; }
+      markStep(3); render();
+    });
+  });
+
+  /* ---------- 导出 ---------- */
+  function dl(name, text, mime) {
+    var blob = new Blob([text], { type: mime + ';charset=utf-8' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url; a.download = name;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    setTimeout(function () { URL.revokeObjectURL(url); }, 1500);
+  }
+  function flash(btn, text) {
+    var old = btn.textContent;
+    btn.textContent = text; btn.setAttribute('data-state', 'done');
+    setTimeout(function () { btn.textContent = old; btn.removeAttribute('data-state'); }, 1500);
+  }
+  function copy(text) {
+    if (navigator.clipboard && window.isSecureContext) {
+      return navigator.clipboard.writeText(text).then(function () { return true; });
+    }
+    return new Promise(function (res) {
+      var ta = document.createElement('textarea');
+      ta.value = text; ta.setAttribute('readonly', '');
+      ta.style.cssText = 'position:fixed;top:0;left:-9999px;opacity:0';
+      document.body.appendChild(ta); ta.select();
+      var ok = false; try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+      document.body.removeChild(ta); res(ok);
+    });
+  }
+  function allowExport() {
+    var blockers = renderReadout();
+    renderOut(blockers);
+    if (blockers.length) { $('exportStatus').focus(); return false; }
+    return true;
+  }
+  $('dlJson').addEventListener('click', function () {
+    if (!allowExport()) return;
+    dl('ui-tokens.json', JSON.stringify(buildTokens(renderReadout()), null, 2), 'application/json');
+    flash(this, '已下载');
+  });
+  $('dlMd').addEventListener('click', function () {
+    if (!allowExport()) return;
+    dl('UI-DESIGN.md', buildMd(renderReadout()), 'text/markdown');
+    flash(this, '已下载');
+  });
+  $('cpJson').addEventListener('click', function () {
+    if (!allowExport()) return;
+    var self = this;
+    copy(JSON.stringify(buildTokens(renderReadout()), null, 2)).then(function (ok) {
+      flash(self, ok ? '已复制' : '复制失败');
+    }, function () { flash(self, '复制失败'); });
+  });
+  $('cpMd').addEventListener('click', function () {
+    if (!allowExport()) return;
+    var self = this;
+    copy(buildMd(renderReadout())).then(function (ok) {
+      flash(self, ok ? '已复制' : '复制失败');
+    }, function () { flash(self, '复制失败'); });
+  });
+  $('reset').addEventListener('click', function () {
+    state.pill = '3px'; state.dens = 1; state.hWeight = 700; state.mBase = 280;
+    state.q.q3 = 'normal'; state.q.q4 = 'auto'; state.q.q5 = 'light';
+    initComponents();
+    applyTpl(state.tpl);
+    flash(this, '已恢复');
+  });
+
+  /* ---------- 步骤导航 ---------- */
+  var doneFlags = [false, false, false, false, false, false];
+  function markStep(i) { doneFlags[i] = true; paintSteps(); }
+  function goStep(id) {
+    var el = $(id);
+    if (!el) return;
+    var top = el.getBoundingClientRect().top + window.pageYOffset - 80;
+    window.scrollTo({ top: top, behavior: 'auto' });  // 不用 smooth，避免读到动画中间态
+  }
+  function paintSteps() {
+    var btns = document.querySelectorAll('.steps button[data-go]');
+    btns.forEach(function (b) {
+      var i = Array.prototype.indexOf.call(btns, b);
+      b.setAttribute('data-done', doneFlags[i] ? '1' : '0');
+    });
+  }
+  Array.prototype.forEach.call(document.querySelectorAll('.steps button[data-go]'), function (b) {
+    b.addEventListener('click', function () {
+      goStep(b.getAttribute('data-go'));
+      Array.prototype.forEach.call(document.querySelectorAll('.steps button[data-go]'), function (x) {
+        x.removeAttribute('aria-current');
+      });
+      b.setAttribute('aria-current', 'step');
+    });
+  });
+
+  /* 组件配置初始化：从 COMPONENTS 取默认值，state 与控件同一份来源。 */
+  function initComponents() {
+    state.cmp = {};
+    Object.keys(COMPONENTS).forEach(function (k) {
+      var v = COMPONENTS[k].v;
+      state.cmp[k] = (k === 'btnSize') ? +v : v;
+      var el = $(k);
+      if (el) el.value = v;
+    });
+  }
+
+  /* ---------- 启动 ---------- */
+  initComponents();
+  renderTpls();
+  applyTpl('T3');
+  // applyQ1Consequences 内部会调 repaintRadios，这里不用再调一次
+  applyQ1Consequences();
+  $('rPill').value = state.pill;
+  $('dens').value = '1';
+  $('fDisp').value = state.disp;
+  $('hWeight').value = '700';
+  paintSteps();
+})();
+</script>
+</body>
+</html>
