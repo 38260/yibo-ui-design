@@ -1,4 +1,4 @@
-# zyb-ui-design
+# yibo-ui-design
 
 一个面向官网、落地页、作品集和展示型工具页的界面设计 Skill：先理解需求与已有设计系统，再设计、实现并验证；**内置视觉参数选择器，但只在满足必要条件时启用**。
 
@@ -7,7 +7,7 @@
 ## 目录结构
 
 ```text
-zyb-ui-design/
+yibo-ui-design/
 ├── SKILL.md                            唯一入口：范围、优先级、工作流程、阶段化依赖
 ├── references/
 │   ├── manual-visual-selection.md      选择器：启动、文件保护、陪选、交接、验证范围
@@ -22,9 +22,9 @@ zyb-ui-design/
 
 直接描述任务即可，Agent 会自行完成设计与实现，**不会先让你填问卷或选模板**：
 
-- “用 zyb-ui-design 帮我设计一个产品官网。”
-- “用 zyb-ui-design 改版这个页面，保留现有功能。”
-- “用 zyb-ui-design 审查这个界面，先不要改代码。”
+- “用 yibo-ui-design 帮我设计一个产品官网。”
+- “用 yibo-ui-design 改版这个页面，保留现有功能。”
+- “用 yibo-ui-design 审查这个界面，先不要改代码。”
 
 ### 2. 视觉参数选择器（受限触发）
 
@@ -55,8 +55,8 @@ zyb-ui-design/
 
 把整个目录放到你的 Skill 目录即可，例如：
 
-- Codex：`~/.codex/skills/zyb-ui-design/`
-- Claude：`~/.claude/skills/zyb-ui-design/`
+- Codex：`~/.codex/skills/yibo-ui-design/`
+- Claude：`~/.claude/skills/yibo-ui-design/`
 
 ## 验证状态
 

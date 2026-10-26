@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="theme-color" content="#F4F1EA">
-<title>zyb · 视觉参数选择器</title>
+<title>yibo · 视觉参数选择器</title>
 <meta name="description" content="选模板、配细节、实时看对比度，接受后导出 UI 规范文件。">
 <style>
 /* ============================================================
@@ -527,7 +527,7 @@ button.act:disabled { opacity: .55; cursor: not-allowed; }
 
 <header class="top">
   <div class="top__in">
-    <span class="brand">zyb<span> / 视觉参数选择器</span></span>
+    <span class="brand">yibo<span> / 视觉参数选择器</span></span>
     <span class="top__meta" id="stamp">未生成</span>
   </div>
 </header>
@@ -935,7 +935,7 @@ button.act:disabled { opacity: .55; cursor: not-allowed; }
     </section>
 
     <footer class="foot">
-      <span>zyb · 六套预设已核算基础颜色组合 · 零外部请求</span>
+      <span>yibo · 六套预设已核算基础颜色组合 · 零外部请求</span>
     </footer>
   </main>
 
@@ -1367,7 +1367,7 @@ button.act:disabled { opacity: .55; cursor: not-allowed; }
     return {
       $schema: 'myui/tokens@1',
       meta: {
-        producer: 'zyb-ui-design', rulesVersion: '2.0', rulesSource: 'zyb-ui-design/SKILL.md',
+        producer: 'yibo-ui-design', rulesVersion: '2.0', rulesSource: 'yibo-ui-design/SKILL.md',
         generated: nowStamp(),
         template: { id: t.id, name: t.name, intendedFor: t.for, note: t.note },
         brief: {
@@ -1474,7 +1474,7 @@ button.act:disabled { opacity: .55; cursor: not-allowed; }
     var tk = buildTokens(blockers);
     var b = tk.meta.brief;
     var L = ['# UI 设计定位 · ' + tk.meta.template.name, '',
-      '> 由 zyb 视觉参数选择器生成。规则版本 ' + tk.meta.rulesVersion,
+      '> 由 yibo 视觉参数选择器生成。规则版本 ' + tk.meta.rulesVersion,
       '> 设计规则来源：' + tk.meta.rulesSource, '',
       '## 一句话定位', '', b.uniqueOneLiner, '',
       '## 需求与选择', '', '| 项目 | 选择 |', '|---|---|',
@@ -1502,7 +1502,7 @@ button.act:disabled { opacity: .55; cursor: not-allowed; }
     L.push('', '强调色角色：' + tk.meta.verified.accentRole + '；其上文字使用 ' + tk.color.onAccent + '。', '',
       '## 交接与验证范围', '',
       '这里只校验列出的纯色参数组合，真实页面尚未验收。实现前补齐内容结构与布局，保留项目现有组件和用户确认的参数。',
-      '设计偏好与项目约束以 zyb-ui-design 主流程为准，不从预设强加零网络、固定字体或统一装饰禁令。',
+      '设计偏好与项目约束以 yibo-ui-design 主流程为准，不从预设强加零网络、固定字体或统一装饰禁令。',
       '实现后检查实际状态、键盘、视口、字体和减弱动效。');
     L.push('', blockers.length ? '配置未通过：' + blockers.join('；') : '配置校验通过；真实页面尚未验收。');
     return L.join('\n');
