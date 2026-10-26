@@ -82,27 +82,30 @@ a, button, select, input, summary { touch-action: manipulation; }
    会把中文标题里的词拆到两行，且编辑器里完全看不出来。 */
 .ln { display: block; }
 
-/* ---------- 骨架：顶栏 + 三列（步骤 / 主区 / 实时读数） ---------- */
-.top {
-  position: sticky; top: 0; z-index: 50;
-  border-bottom: 1px solid var(--line);
-  background: var(--bg);
-}
-.top__in {
-  width: min(1560px, 100% - 40px); margin-inline: auto;
-  display: flex; align-items: center; justify-content: space-between; gap: var(--s4);
-  padding: var(--s3) 0;
-}
-.brand { font-size: 15px; font-weight: 700; letter-spacing: -0.01em; text-decoration: none; }
-.brand span { color: var(--ink-3); font-weight: 400; }
-.top__meta { font-family: var(--mono); font-size: 12px; color: var(--ink-3); }
-
-.layout {
-  width: min(1560px, 100% - 40px); margin-inline: auto;
-  display: grid; grid-template-columns: 196px minmax(0, 1fr) 264px; gap: 0 var(--s5);
-  align-items: start;
-  padding-bottom: var(--s7);
-}
+/* ---------- 骨架：固定顶栏 + 左侧参数 + 常驻预览 ---------- */
+.top { position: sticky; top: 0; z-index: 60; border-bottom: 1px solid var(--line); background: var(--bg); }
+.top__in { height: 58px; padding: 0 var(--s4); display: flex; align-items: center; gap: var(--s3); }
+.brand { font-weight: 700; font-size: 15px; }
+.top__meta { font-family: var(--mono); font-size: 12px; color: var(--ink-3); margin-left: var(--s2); }
+.top__status { margin-left: auto; font-size: 12.5px; color: var(--ink-2); }
+.layout { height: calc(100vh - 58px); display: grid; grid-template-columns: 300px minmax(0, 1fr); overflow: hidden; }
+.panelcol { display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--line); background: var(--panel); }
+.stepnav { display: flex; flex-wrap: wrap; gap: 4px; padding: var(--s3); border-bottom: 1px solid var(--line); }
+.stepnav button { border: 1px solid var(--line); background: var(--bg); color: var(--ink-2); font: inherit; font-size: 12.5px; padding: 6px 9px; border-radius: 3px; }
+.stepnav button[aria-selected="true"] { background: var(--accent-dp); color: #F4F1EA; border-color: var(--accent-dp); }
+.groups { flex: 1 1 auto; min-height: 0; overflow: auto; padding: var(--s4); }
+.group { display: none; }
+.group.is-open { display: block; }
+.previewcol { display: flex; flex-direction: column; min-height: 0; min-width: 0; }
+.pvbar { display: flex; align-items: center; justify-content: space-between; gap: var(--s3); padding: var(--s2) var(--s4); border-bottom: 1px solid var(--line); }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 4px; overflow: hidden; }
+.seg button { border: 0; background: var(--panel); color: var(--ink-2); font: inherit; font-size: 12.5px; padding: 7px 12px; }
+.seg button[aria-selected="true"] { background: var(--panel-2); color: var(--ink); font-weight: 600; }
+.pvscroll { flex: 1 1 auto; min-height: 0; overflow: auto; padding: var(--s4); }
+#stageFull[data-device="desktop"] { max-width: 1180px; }
+#stageFull[data-device="tablet"] { max-width: 768px; margin-inline: auto; }
+#stageFull[data-device="phone"] { max-width: 390px; margin-inline: auto; }
+#resultsPanel { padding: var(--s4); }
 
 /* ---------- 步骤轨 ---------- */
 .steps { position: sticky; top: 68px; padding: var(--s5) 0; }
@@ -501,17 +504,12 @@ button.act[data-state="done"] { color: var(--accent); border-color: var(--accent
 button.act:disabled { opacity: .55; cursor: not-allowed; }
 [aria-invalid="true"] { border-color: var(--bad); }
 
-@media (max-width: 1240px) {
-  .layout { grid-template-columns: 172px minmax(0, 1fr); }
-  .readout { grid-column: 2; position: static; padding-top: 0; }
-}
-@media (max-width: 860px) {
-  .layout { grid-template-columns: minmax(0, 1fr); }
-  .steps { position: static; padding: var(--s4) 0 0; }
-  .steps ol { display: grid; grid-template-columns: repeat(auto-fit, minmax(128px, 1fr)); gap: 0 var(--s3); }
-  .readout { grid-column: 1; }
-  .field > label { flex-basis: 100%; }
-  .panel { padding: var(--s5) 0; }
+@media (max-width: 980px) {
+  .layout { display: flex; flex-direction: column-reverse; height: auto; min-height: calc(100vh - 58px); }
+  .panelcol { border-right: 0; border-top: 1px solid var(--line); max-height: 52vh; }
+  .groups { overflow: auto; }
+  .previewcol { min-height: 46vh; }
+  .pvscroll { min-height: 38vh; }
 }
 @media (prefers-reduced-motion: reduce) {
   * { transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; }
@@ -527,425 +525,168 @@ button.act:disabled { opacity: .55; cursor: not-allowed; }
 
 <header class="top">
   <div class="top__in">
-    <span class="brand">yibo<span> / 视觉参数选择器</span></span>
+    <span class="brand">Yibo UI Studio</span>
     <span class="top__meta" id="stamp">未生成</span>
+    <span id="exportStatus" class="top__status" role="status" aria-live="polite" tabindex="-1"></span>
+    <button class="act act--p" type="button" id="dlPrompt">下载提示词</button>
+    <button class="act" type="button" id="resultsToggle" aria-expanded="false" aria-controls="resultsPanel">导出与结果</button>
   </div>
 </header>
 
 <div class="layout">
-
-  <nav class="steps" aria-label="流程">
-    <p class="steps__t">流程</p>
-    <ol id="stepList">
-      <li><button type="button" data-go="s1" aria-current="step"><b>01</b><span>前期问</span></button></li>
-      <li><button type="button" data-go="s2"><b>02</b><span>选模板</span></button></li>
-      <li><button type="button" data-go="s3"><b>03</b><span>调细节</span></button></li>
-      <li><button type="button" data-go="s4"><b>04</b><span>组件</span></button></li>
-      <li><button type="button" data-go="s5"><b>05</b><span>看效果</span></button></li>
-      <li><button type="button" data-go="s6"><b>06</b><span>拿结果</span></button></li>
-    </ol>
-  </nav>
-
-  <main class="main" id="main">
-
-    <div class="pagehead">
-      <h1><span class="ln">界面设计</span><span class="ln">选择器</span></h1>
-      <p>
-        选一套底子，调完细节，接受结果。<strong>右侧读数是实时算的</strong>，
-        配置不合格时禁用导出。读数只覆盖列出的颜色组合，真实页面仍需验收。
-      </p>
+  <section class="panelcol" aria-label="参数面板">
+    <div class="stepnav" role="tablist" aria-label="参数分组">
+      <button type="button" role="tab" data-group="g-need" aria-selected="true">需求</button>
+      <button type="button" role="tab" data-group="g-style" aria-selected="false">预设</button>
+      <button type="button" role="tab" data-group="g-color" aria-selected="false">色彩</button>
+      <button type="button" role="tab" data-group="g-font" aria-selected="false">字体</button>
+      <button type="button" role="tab" data-group="g-space" aria-selected="false">布局</button>
+      <button type="button" role="tab" data-group="g-comp" aria-selected="false">组件</button>
+      <button type="button" role="tab" data-group="g-motion" aria-selected="false">动效</button>
+      <button type="button" role="tab" data-group="g-prompt" aria-selected="false">提示词</button>
+      <button type="button" role="tab" data-group="g-check" aria-selected="false">对比度</button>
     </div>
 
-    <!-- 01 前期问 -->
-    <section class="panel" id="s1">
-      <div class="panel__h"><span class="n">01</span><h2>前期问</h2></div>
-      <p class="panel__sub">
-        六道题，决定后面该给你看什么。<strong>答不出来的就跳过</strong>，
-        选默认项也能直接往下走，别卡在这儿。
-      </p>
-
-      <div class="q">
-        <p class="q__t" id="q1t">这是哪一类项目？</p>
-        <p class="q__h" id="q1h"></p>
-        <div class="opts" id="q1" role="radiogroup" aria-labelledby="q1t" aria-describedby="q1h"></div>
-        <p class="q__c" id="q1c" hidden></p>
-      </div>
-
-      <div class="q">
-        <p class="q__t" id="q2t">它要让人完成什么？</p>
-        <p class="q__h" id="q2h"></p>
-        <div class="opts" id="q2" role="radiogroup" aria-labelledby="q2t" aria-describedby="q2h"></div>
-        <p class="q__c" id="q2c" hidden></p>
-      </div>
-
-      <div class="q">
-        <p class="q__t" id="q3t">页面有多重？</p>
-        <p class="q__h" id="q3h"></p>
-        <div class="opts" id="q3" role="radiogroup" aria-labelledby="q3t" aria-describedby="q3h"></div>
-      </div>
-
-      <div class="q">
-        <p class="q__t" id="q4t">浅底还是深底？</p>
-        <p class="q__h" id="q4h"></p>
-        <div class="opts" id="q4" role="radiogroup" aria-labelledby="q4t" aria-describedby="q4h"></div>
-      </div>
-
-      <div class="q">
-        <p class="q__t" id="q5t">能接受多少动效？</p>
-        <p class="q__h" id="q5h"></p>
-        <div class="opts" id="q5" role="radiogroup" aria-labelledby="q5t" aria-describedby="q5h"></div>
-      </div>
-
-      <div class="q">
-        <label class="q__t" for="q6">这一页凭什么独特？<span style="font-weight:400;color:var(--ink-3)">（写不出来就先跳过）</span></label>
-        <p class="q__h">一句话。写不出来说明还没想清楚，不是表达不好。</p>
-        <input type="text" id="q6" placeholder="例：首屏是一段真实运行录像，不是 slogan" style="width:100%">
-      </div>
-    </section>
-
-    <!-- 02 选模板 -->
-    <section class="panel" id="s2">
-      <div class="panel__h"><span class="n">02</span><h2>选模板</h2></div>
-      <p class="panel__sub">
-        六套通用底子，<strong>每一套都计算基础颜色组合的对比度</strong>，数字在右侧读数栏。
-        它们是起点不是终点，选完到第 03 步随便改。
-      </p>
-      <div class="tpl" id="tpls"></div>
-    </section>
-
-    <!-- 03 调细节 -->
-    <section class="panel" id="s3">
-      <div class="panel__h"><span class="n">03</span><h2>调细节</h2></div>
-      <p class="panel__sub">
-        改任何一项，右边的预览和读数<strong>立刻重算</strong>。
-        读数由配置色值计算，不能代替真实页面验收。
-      </p>
-
-      <h3 class="sub">配色</h3>
-      <div class="field">
-        <label for="cGround">纸 / 底色</label>
-        <input type="color" id="cGround" value="#14161A">
-        <input type="text" id="cGroundHex" aria-label="底色十六进制" class="mono" value="#14161A" spellcheck="false">
-      </div>
-      <div class="field">
-        <label for="cSurface">面板色</label>
-        <input type="color" id="cSurface" value="#1C1F24">
-        <input type="text" id="cSurfaceHex" aria-label="面板色十六进制" class="mono" value="#1C1F24" spellcheck="false">
-      </div>
-      <div class="field">
-        <label for="cInk">正文墨色</label>
-        <input type="color" id="cInk" value="#E8E6E1">
-        <input type="text" id="cInkHex" aria-label="正文色十六进制" class="mono" value="#E8E6E1" spellcheck="false">
-      </div>
-      <div class="field">
-        <label for="cInk2">次要文字</label>
-        <input type="color" id="cInk2" value="#A2A8B0">
-        <input type="text" id="cInk2Hex" aria-label="次要文字色十六进制" class="mono" value="#A2A8B0" spellcheck="false">
-      </div>
-      <div class="field">
-        <label for="cAccent">强调色</label>
-        <input type="color" id="cAccent" value="#E0A030">
-        <input type="text" id="cAccentHex" aria-label="强调色十六进制" class="mono" value="#E0A030" spellcheck="false">
-      </div>
-      <div class="field">
-        <label for="cAccentDp">强调深<span style="color:var(--ink-3)">（按钮底）</span></label>
-        <input type="color" id="cAccentDp" value="#B37E1C">
-        <input type="text" id="cAccentDpHex" aria-label="按钮底色十六进制" class="mono" value="#B37E1C" spellcheck="false">
-      </div>
-      <div class="field">
-        <label for="accentRole">强调色角色</label>
-        <select id="accentRole">
-          <option value="auto">自动判定（推荐）</option>
-          <option value="text">可作文字与标签底</option>
-          <option value="block">只作色块 / 高亮</option>
-        </select>
-        <span id="accentRoleHint" style="flex:1 1 14em;font-size:12.5px;color:var(--ink-3)"></span>
-      </div>
-
-      <h3 class="sub">形状与密度</h3>
-      <div class="field">
-        <label for="rLg">大圆角</label>
-        <input type="range" id="rLg" min="0" max="24" step="1" value="14">
-        <b class="mono" id="rLgV" style="flex:0 0 3.5em;font-weight:400;font-size:12.5px;color:var(--ink)">14px</b>
-      </div>
-      <div class="field">
-        <label for="rMd">中圆角</label>
-        <input type="range" id="rMd" min="0" max="18" step="1" value="9">
-        <b class="mono" id="rMdV" style="flex:0 0 3.5em;font-weight:400;font-size:12.5px;color:var(--ink)">9px</b>
-      </div>
-      <div class="field">
-        <label for="rSm">小圆角</label>
-        <input type="range" id="rSm" min="0" max="12" step="1" value="5">
-        <b class="mono" id="rSmV" style="flex:0 0 3.5em;font-weight:400;font-size:12.5px;color:var(--ink)">5px</b>
-      </div>
-      <div class="field">
-        <label for="rPill">按钮形状</label>
-        <select id="rPill">
-          <option value="3px">微圆（3px）</option>
-          <option value="999px">胶囊（999px）</option>
-          <option value="0px">直角（0）</option>
-        </select>
-      </div>
-      <div class="field">
-        <label for="dens">密度</label>
-        <select id="dens">
-          <option value="0.86">紧凑（0.86）</option>
-          <option value="1" selected>标准（1）</option>
-          <option value="1.18">宽松（1.18）</option>
-        </select>
-      </div>
-
-      <h3 class="sub">字体与动效</h3>
-      <div class="field">
-        <label for="fDisp">展示字</label>
-        <select id="fDisp">
-          <option value="sans">无衬线（系统黑体）</option>
-          <option value="serif">高对比衬线（Georgia / 宋体）</option>
-        </select>
-      </div>
-      <div class="field">
-        <label for="hWeight">标题字重</label>
-        <select id="hWeight">
-          <option value="700" selected>700 粗</option>
-          <option value="800">800 更粗</option>
-          <option value="400">400 常规（编辑感）</option>
-        </select>
-      </div>
-      <div class="field">
-        <label for="mBase">动效基准</label>
-        <input type="range" id="mBase" min="0" max="640" step="20" value="280">
-        <b class="mono" id="mBaseV" style="flex:0 0 3.5em;font-weight:400;font-size:12.5px;color:var(--ink)">280ms</b>
-      </div>
-    </section>
-
-    <!-- 04 组件 -->
-    <section class="panel" id="s4">
-      <div class="panel__h"><span class="n">04</span><h2>组件</h2></div>
-      <p class="panel__sub">
-        令牌决定「这套界面什么颜色」，组件决定<strong>「按下去是什么感觉」</strong>。
-        按钮、输入框与下拉展示<strong>常态 / 悬停 / 焦点 / 禁用</strong>，标签页可切换：
-        只看常态等于没做交互设计，悬停与焦点是两种不同的视觉承诺。
-      </p>
-
-      <h3 class="sub">按钮</h3>
-      <div class="field">
-        <label for="btnShape">形态</label>
-        <select id="btnShape">
-          <option value="solid">实心（主行动）</option>
-          <option value="outline">描边（次行动）</option>
-          <option value="ghost">幽灵（文字级行动）</option>
-        </select>
-      </div>
-      <div class="field">
-        <label for="btnPress">按下反馈</label>
-        <select id="btnPress">
-          <option value="darken">变深</option>
-          <option value="sink">内缩 1px</option>
-          <option value="none">无</option>
-        </select>
-        <span class="note2" id="btnPressNote"></span>
-      </div>
-      <div class="field">
-        <label for="btnSize">内边距</label>
-        <select id="btnSize">
-          <option value="1">紧凑</option>
-          <option value="1.18" selected>标准</option>
-          <option value="1.4">宽松</option>
-        </select>
-        <span class="note2">高度会一起变。低于 40px 在触屏上不够按。</span>
-      </div>
-
-      <h3 class="sub">输入框</h3>
-      <div class="field">
-        <label for="inpShape">形态</label>
-        <select id="inpShape">
-          <option value="boxed">全框</option>
-          <option value="line">下划线</option>
-          <option value="fill">填充</option>
-        </select>
-      </div>
-      <div class="field">
-        <label for="inpFocus">焦点反馈</label>
-        <select id="inpFocus">
-          <option value="border">边框变色</option>
-          <option value="glow">外发光</option>
-          <option value="none">只有焦点环</option>
-        </select>
-        <span class="note2" id="inpFocusNote"></span>
-      </div>
-
-      <h3 class="sub">下拉</h3>
-      <div class="field">
-        <label for="selShape">形态</label>
-        <select id="selShape">
-          <option value="native">原生外观（描边）</option>
-          <option value="fill">填充块</option>
-          <option value="line">下划线</option>
-        </select>
-      </div>
-
-      <h3 class="sub">标签页</h3>
-      <div class="field">
-        <label for="tabInd">指示方式</label>
-        <select id="tabInd">
-          <option value="line">下划线</option>
-          <option value="block">填充块</option>
-          <option value="bar">左侧竖条</option>
-        </select>
-        <span class="note2">指示方式要和页面整体调性一致。竖条最安静，下划线最常见，填充块最重。</span>
-      </div>
-
-      <h3 class="sub">字体细节</h3>
-      <div class="field">
-        <label for="numFont">数字字体</label>
-        <select id="numFont">
-          <option value="mono" selected>等宽（数字不跳动）</option>
-          <option value="body">与正文同族</option>
-          <option value="serif">衬线数字</option>
-        </select>
-        <span class="note2" id="numFontNote"></span>
-      </div>
-      <div class="field">
-        <label for="hTrack">标题字距</label>
-        <select id="hTrack">
-          <option value="-0.028em" selected>收紧</option>
-          <option value="-0.01em">轻微</option>
-          <option value="0">常规</option>
-        </select>
-        <span class="note2">衬线标题要收紧，无衬线标题收紧过头会显得挤。</span>
-      </div>
-
-      <h3 class="sub">动效</h3>
-      <div class="field">
-        <label for="ease">缓动</label>
-        <select id="ease">
-          <option value="decel" selected>减速（快进慢停）</option>
-          <option value="standard">标准（对称）</option>
-          <option value="spring">回弹</option>
-        </select>
-      </div>
-      <div class="field">
-        <label for="trig">触发时机</label>
-        <select id="trig">
-          <option value="hover" selected>悬停即动</option>
-          <option value="focus">仅焦点与状态变</option>
-          <option value="press">仅按下</option>
-        </select>
-        <span class="note2" id="trigNote"></span>
-      </div>
-      <div class="field">
-        <label for="reduce">减弱动效</label>
-        <select id="reduce">
-          <option value="auto" selected>跟随系统</option>
-          <option value="force">始终关闭动效</option>
-        </select>
-        <span class="note2">可跟随系统或始终关闭动效；关闭后仍保留即时颜色与状态反馈。</span>
-      </div>
-
-      <h3 class="sub">组件台</h3>
-      <div class="cmp" id="cmpBench"></div>
-    </section>
-
-    <!-- 05 看效果 -->
-    <section class="panel" id="s5">
-      <div class="panel__h"><span class="n">05</span><h2>看效果</h2></div>
-      <p class="panel__sub">
-        同一段内容，应用你选择的配色、尺寸与反馈。<strong>卡片保持稳定</strong>，
-        动效取决于你的选择，并尊重系统减弱动效设置。
-        组件的具体形态与反馈在<strong>第 04 步</strong>调。
-      </p>
-
-      <div class="stage">
-        <div class="stage__bar">
-          <span>PREVIEW</span>
-          <span id="pvName">待选</span>
+    <div class="groups" id="main">
+      <section class="group is-open" id="g-need" role="tabpanel" aria-label="项目需求">
+        <div class="q">
+          <p class="q__t" id="q1t">这是哪一类项目？</p>
+          <div class="opts" id="q1" role="radiogroup" aria-labelledby="q1t"></div>
+          <p class="q__c" id="q1c" hidden></p>
         </div>
+        <div class="q">
+          <p class="q__t" id="q2t">它要让人完成什么？</p>
+          <div class="opts" id="q2" role="radiogroup" aria-labelledby="q2t"></div>
+        </div>
+        <div class="q">
+          <p class="q__t" id="q3t">页面有多重？</p>
+          <div class="opts" id="q3" role="radiogroup" aria-labelledby="q3t"></div>
+        </div>
+        <div class="q">
+          <p class="q__t" id="q4t">浅底还是深底？</p>
+          <div class="opts" id="q4" role="radiogroup" aria-labelledby="q4t"></div>
+        </div>
+        <div class="q">
+          <p class="q__t" id="q5t">能接受多少动效？</p>
+          <div class="opts" id="q5" role="radiogroup" aria-labelledby="q5t"></div>
+        </div>
+        <div class="q">
+          <label class="q__t" for="q6">一句话独特性</label>
+          <input type="text" id="q6" placeholder="例：首屏是一段真实运行录像">
+        </div>
+      </section>
+
+      <section class="group" id="g-style" role="tabpanel" aria-label="风格预设">
+        <div class="tpl" id="tpls"></div>
+        <p class="hint" id="tplState">当前为默认预设。</p>
+      </section>
+
+      <section class="group" id="g-color" role="tabpanel" aria-label="色彩">
+        <div class="field"><label for="cGround">底色</label><input type="color" id="cGround"><input type="text" id="cGroundHex" aria-label="底色十六进制" class="mono" spellcheck="false"></div>
+        <div class="field"><label for="cSurface">面板色</label><input type="color" id="cSurface"><input type="text" id="cSurfaceHex" aria-label="面板色十六进制" class="mono" spellcheck="false"></div>
+        <div class="field"><label for="cInk">正文色</label><input type="color" id="cInk"><input type="text" id="cInkHex" aria-label="正文色十六进制" class="mono" spellcheck="false"></div>
+        <div class="field"><label for="cInk2">次要文字</label><input type="color" id="cInk2"><input type="text" id="cInk2Hex" aria-label="次要文字色十六进制" class="mono" spellcheck="false"></div>
+        <div class="field"><label for="cAccent">强调色</label><input type="color" id="cAccent"><input type="text" id="cAccentHex" aria-label="强调色十六进制" class="mono" spellcheck="false"></div>
+        <div class="field"><label for="cAccentDp">按钮底色</label><input type="color" id="cAccentDp"><input type="text" id="cAccentDpHex" aria-label="按钮底色十六进制" class="mono" spellcheck="false"></div>
+        <div class="field"><label for="accentRole">强调色角色</label>
+          <select id="accentRole"><option value="auto">自动判定（推荐）</option><option value="text">可作文字与标签底</option><option value="block">只作色块 / 高亮</option></select>
+          <span id="accentRoleHint" class="hint"></span>
+        </div>
+      </section>
+
+      <section class="group" id="g-font" role="tabpanel" aria-label="字体">
+        <div class="field"><label for="fDisp">展示字</label><select id="fDisp"><option value="sans">无衬线</option><option value="serif">高对比衬线</option></select></div>
+        <div class="field"><label for="hWeight">标题字重</label><select id="hWeight"><option value="700" selected>700 粗</option><option value="800">800 更粗</option><option value="400">400 常规</option></select></div>
+        <div class="field"><label for="hTrack">标题字距</label><select id="hTrack"><option value="-0.028em" selected>收紧</option><option value="-0.01em">轻微</option><option value="0">常规</option></select></div>
+        <div class="field"><label for="numFont">数字字体</label><select id="numFont"><option value="mono" selected>等宽</option><option value="body">与正文同族</option><option value="serif">衬线</option></select></div>
+      </section>
+
+      <section class="group" id="g-space" role="tabpanel" aria-label="布局与间距">
+        <div class="field"><label for="rLg">大圆角</label><input type="range" id="rLg" min="0" max="24" step="1" value="14"><b class="mono" id="rLgV">14px</b></div>
+        <div class="field"><label for="rMd">中圆角</label><input type="range" id="rMd" min="0" max="18" step="1" value="9"><b class="mono" id="rMdV">9px</b></div>
+        <div class="field"><label for="rSm">小圆角</label><input type="range" id="rSm" min="0" max="12" step="1" value="5"><b class="mono" id="rSmV">5px</b></div>
+        <div class="field"><label for="rPill">按钮形状</label><select id="rPill"><option value="3px">微圆</option><option value="999px">胶囊</option><option value="0px">直角</option></select></div>
+        <div class="field"><label for="dens">密度</label><select id="dens"><option value="0.86">紧凑</option><option value="1" selected>标准</option><option value="1.18">宽松</option></select></div>
+      </section>
+
+      <section class="group" id="g-comp" role="tabpanel" aria-label="组件">
+        <div class="field"><label for="btnShape">按钮形态</label><select id="btnShape"><option value="solid">实心</option><option value="outline">描边</option><option value="ghost">幽灵</option></select></div>
+        <div class="field"><label for="btnPress">按下反馈</label><select id="btnPress"><option value="darken">变深</option><option value="sink">内缩 1px</option><option value="none">无</option></select></div>
+        <div class="field"><label for="btnSize">内边距</label><select id="btnSize"><option value="1">紧凑</option><option value="1.18" selected>标准</option><option value="1.4">宽松</option></select></div>
+        <div class="field"><label for="inpShape">输入框</label><select id="inpShape"><option value="boxed">全框</option><option value="line">下划线</option><option value="fill">填充</option></select></div>
+        <div class="field"><label for="inpFocus">焦点反馈</label><select id="inpFocus"><option value="border">边框变色</option><option value="glow">外发光</option><option value="none">只有焦点环</option></select></div>
+        <div class="field"><label for="selShape">下拉</label><select id="selShape"><option value="native">原生描边</option><option value="fill">填充块</option><option value="line">下划线</option></select></div>
+        <div class="field"><label for="tabInd">标签页</label><select id="tabInd"><option value="line">下划线</option><option value="block">填充块</option><option value="bar">左侧竖条</option></select></div>
+      </section>
+
+      <section class="group" id="g-motion" role="tabpanel" aria-label="动效">
+        <div class="field"><label for="ease">缓动</label><select id="ease"><option value="decel" selected>减速</option><option value="standard">标准</option><option value="spring">回弹</option></select></div>
+        <div class="field"><label for="trig">触发时机</label><select id="trig"><option value="hover" selected>悬停即动</option><option value="focus">仅焦点与状态变</option><option value="press">仅按下</option></select></div>
+        <div class="field"><label for="mBase">动效基准</label><input type="range" id="mBase" min="0" max="640" step="20" value="280"><b class="mono" id="mBaseV">280ms</b></div>
+        <div class="field"><label for="reduce">减弱动效</label><select id="reduce"><option value="auto" selected>跟随系统</option><option value="force">始终关闭动效</option></select></div>
+      </section>
+
+      <section class="group" id="g-prompt" role="tabpanel" aria-label="提示词">
+        <div class="q"><label class="q__t" for="projectNeed">项目需求</label><textarea id="projectNeed" rows="4" placeholder="准备做什么页面、给谁使用、核心功能和限制"></textarea></div>
+        <div class="q"><label class="q__t" for="templatePrompt">当前模板提示词</label><textarea id="templatePrompt" rows="6" aria-describedby="tplState"></textarea><button class="act" type="button" id="resetTplPrompt">恢复当前模板提示词</button></div>
+        <div class="q"><label class="q__t" for="extraRequirements">补充要求</label><textarea id="extraRequirements" rows="4" placeholder="仅本项目的特别要求"></textarea></div>
+        <div class="q"><p class="q__t">最终设计提示词</p><pre id="outPrompt" tabindex="0" aria-label="最终设计提示词预览"></pre></div>
+      </section>
+
+      <section class="group" id="g-check" role="tabpanel" aria-label="对比度检查">
+        <div id="roRows"></div>
+        <p class="hint">阈值 4.5:1 正文、3:1 大字。这里只检查列出的颜色组合，不代表真实页面验收。</p>
+        <details><summary>详细说明</summary><p>背景叠加、图片、渐变、键盘行为和视口需要真实页面检查。</p></details>
+      </section>
+    </div>
+  </section>
+
+  <main class="previewcol" aria-label="实时预览">
+    <div class="pvbar">
+      <div class="seg" role="tablist" aria-label="预览模式">
+        <button type="button" role="tab" data-view="full" aria-selected="true">整页</button>
+        <button type="button" role="tab" data-view="comp" aria-selected="false">组件</button>
+      </div>
+      <div class="seg" role="tablist" aria-label="设备视口">
+        <button type="button" role="tab" data-device="desktop" aria-selected="true">桌面</button>
+        <button type="button" role="tab" data-device="tablet" aria-selected="false">平板</button>
+        <button type="button" role="tab" data-device="phone" aria-selected="false">手机</button>
+      </div>
+    </div>
+    <div class="pvscroll">
+      <div class="stage" id="stageFull">
         <div class="pv" id="pv">
           <div class="pv__top">
             <span class="pv__brand">Meridian</span>
-            <span class="pv__nav">
-              <a href="#" onclick="return false">功能</a>
-              <a href="#" onclick="return false">定价</a>
-              <a href="#" onclick="return false">文档</a>
-            </span>
+            <span class="pv__nav"><a href="#" onclick="return false">功能</a><a href="#" onclick="return false">定价</a><a href="#" onclick="return false">文档</a></span>
           </div>
           <h3 class="pv__h"><span class="pv__hl">三个月前</span><span class="pv__br">那个决定，现在还能查到</span></h3>
-          <p class="pv__p">
-            把每次会议、每个决定和它们的来龙去脉收在一处。不用整理，直接搜。
-            <span class="pv__tag">v2.4</span>
-          </p>
-          <div class="pv__acts">
-            <a class="pv__btn" href="#" onclick="return false">开始使用</a>
-            <a class="pv__btn pv__btn--g" href="#" onclick="return false">看文档</a>
-          </div>
+          <p class="pv__p">把每次会议、每个决定和它们的来龙去脉收在一处。不用整理，直接搜。<span class="pv__tag">v2.4</span></p>
+          <div class="pv__acts"><a class="pv__btn" href="#" onclick="return false">开始使用</a><a class="pv__btn pv__btn--g" href="#" onclick="return false">看文档</a></div>
           <div class="pv__grid">
-            <div class="pv__cell pv__cell--a">
-              <h4>决定留痕</h4>
-              <p>谁在什么时候说了什么，落到具体那条讨论里。</p>
-            </div>
-            <div class="pv__cell">
-              <h4>跨会议检索</h4>
-              <p>搜一句话，命中三段会议里的七个相关决定。</p>
-            </div>
-            <div class="pv__cell">
-              <h4>自动归档</h4>
-              <p>会议结束即结构化，不用谁再去手动填表。</p>
-            </div>
+            <div class="pv__cell pv__cell--a"><h4>决定留痕</h4><p>谁在什么时候说了什么，落到具体那条讨论里。</p></div>
+            <div class="pv__cell"><h4>跨会议检索</h4><p>搜一句话，命中三段会议里的七个相关决定。</p></div>
+            <div class="pv__cell"><h4>自动归档</h4><p>会议结束即结构化，不用谁再去手动填表。</p></div>
           </div>
         </div>
       </div>
-    </section>
-
-    <!-- 06 拿结果 -->
-    <section class="panel" id="s6">
-      <div class="panel__h"><span class="n">06</span><h2>拿结果</h2></div>
-      <p class="panel__sub">
-        接受当前配置后导出两份文件。<strong>把 <code>ui-tokens.json</code> 交给后续实现步骤</strong>，
-        <code>UI-DESIGN.md</code> 给人读：它写清这个项目的 UI 定位和不可协商项。
-      </p>
-
-      <div class="warnbox">
-        <b>导出前先看读数。</b>右侧有红字就说明这份配置不能直接用：
-        通常是次要文字或按钮底色没到 4.5:1。改完再导。
+      <div class="cmp" id="cmpBench" hidden></div>
+      <div id="resultsPanel" hidden>
+        <div class="out"><div class="out__h"><span>ui-tokens.json</span><span id="jsonMeta">待生成</span></div><pre id="outJson" tabindex="0" aria-label="导出 token JSON 预览"></pre></div>
+        <div class="out"><div class="out__h"><span>UI-DESIGN.md</span><span id="mdMeta">待生成</span></div><pre id="outMd" tabindex="0" aria-label="导出设计说明预览"></pre></div>
+        <div class="actions">
+          <button class="act act--p" type="button" id="dlJson">下载 ui-tokens.json</button>
+          <button class="act act--p" type="button" id="dlMd">下载 UI-DESIGN.md</button>
+          <button class="act" type="button" id="cpJson">复制 JSON</button>
+          <button class="act" type="button" id="cpMd">复制 Markdown</button>
+          <button class="act" type="button" id="cpPrompt">复制提示词</button>
+          <button class="act act--p" type="button" id="dlPrompt2">下载 UI-PROMPT.md</button>
+          <button class="act" type="button" id="reset">恢复视觉默认值</button>
+        </div>
+        <p class="hint">正式导出受配置校验控制；页面预览不代表真实页面已验收。</p>
       </div>
-
-      <h3 class="sub">ui-tokens.json</h3>
-      <div class="out">
-        <div class="out__h"><span>TOKENS · 交给实现</span><span id="jsonMeta">待生成</span></div>
-        <pre id="outJson" tabindex="0" aria-label="导出的 token JSON 预览"></pre>
-      </div>
-
-      <h3 class="sub">UI-DESIGN.md</h3>
-      <div class="out">
-        <div class="out__h"><span>DESIGN.md · 给人读</span><span id="mdMeta">待生成</span></div>
-        <pre id="outMd" tabindex="0" aria-label="导出的设计说明预览"></pre>
-      </div>
-
-      <p id="exportStatus" role="status" aria-live="polite" tabindex="-1"></p>
-      <div class="actions">
-        <button class="act act--p" type="button" id="dlJson">下载 ui-tokens.json</button>
-        <button class="act act--p" type="button" id="dlMd">下载 UI-DESIGN.md</button>
-        <button class="act" type="button" id="cpJson">复制 JSON</button>
-        <button class="act" type="button" id="cpMd">复制 Markdown</button>
-        <button class="act" type="button" id="reset">恢复视觉默认值</button>
-      </div>
-      <p style="margin-top:var(--s3);font-size:13px;color:var(--ink-3)">
-        下载在浏览器里落到你的「下载」目录；把两个文件放进项目根目录，AI 读到它们就会按这套设计定位来做界面。
-      </p>
-    </section>
-
-    <footer class="foot">
-      <span>yibo · 六套预设已核算基础颜色组合 · 零外部请求</span>
-    </footer>
+    </div>
   </main>
-
-  <aside class="readout" aria-label="实时读数">
-    <p class="ro__t">实时读数</p>
-    <div id="roRows"></div>
-    <p class="ro__note">
-      正文线 4.5:1，大字线 3:1。这些数字是按 WCAG 相对亮度公式实时算的，不是标称值。
-    </p>
-  </aside>
 </div>
 
 <script>
@@ -1014,37 +755,42 @@ button.act:disabled { opacity: .55; cursor: not-allowed; }
                   压纸 1.06:1，但反过来深墨压它 11.82:1，完全可用。
                   把它当文字色就会得到一份 1.06:1 的废配色。 */
   var TPLS = [
-    { id: 'T1', name: '冷灰蓝 · 靛墨', for: '讲解 / 评审 / 文档',
+    { id: 'T1', name: '冷灰蓝·靛墨', for: '讲解 / 评审 / 文档',
       ground: '#E9EDF1', surface: '#F7F9FB', ink: '#14274A', ink2: '#4F5D74',
       accent: '#D9F24F', accentDp: '#B32C12', rule: '#C6CFDB',
       rLg: 14, rMd: 10, rSm: 5, disp: 'serif', accentRole: 'block',
-      note: '强调色是荧光标记笔，accentRole 是 block：只做色块与下划高亮，绝不用于文字。' +
-            '要在这个底子上标重点，就反过来用深墨压黄底（11.82:1）。' },
-    { id: 'T2', name: '暖奶油 · 陶土', for: '信息页 / 索引 / 作品集',
+      templatePrompt: '清晰理性，优先把阅读和信息组织做好。标题与正文层级稳定，标记色只用于局部高亮，图形辅助服从内容。',
+      note: '荧光标记笔只作色块，高亮文字反向用深墨。' },
+    { id: 'T2', name: '暖奶油·陶土', for: '信息页 / 索引 / 作品集',
       ground: '#F4F1EA', surface: '#FAF8F3', ink: '#2A2622', ink2: '#6B6257',
       accent: '#A34A28', accentDp: '#7A3316', rule: '#E3DDD0',
       rLg: 6, rMd: 4, rSm: 3, disp: 'serif', accentRole: 'text',
-      note: '教科书式的暖纸底。陶土是这族的正统色，认准深陶土 #A34A28，别用亮陶土。' },
-    { id: 'T3', name: '纸白 · 朱橙', for: '手册 / 工单 / 工具页',
+      templatePrompt: '温暖的编辑设计，讲究字体层次、留白和材料感。段落与图文保持呼吸，避免堆积装饰。',
+      note: '教科书式暖纸底，使用深陶土作强调。' },
+    { id: 'T3', name: '纸白·朱橙', for: '手册 / 工单 / 工具页',
       ground: '#F5F5F2', surface: '#FAFAF8', ink: '#16181A', ink2: '#686F76',
       accent: '#C2410C', accentDp: '#9A3412', rule: '#DCDCD5',
       rLg: 3, rMd: 3, rSm: 2, disp: 'sans', accentRole: 'text',
-      note: '无衬线重字 + 几乎零圆角。层级靠字号字重，不靠卡片阴影。' },
-    { id: 'T4', name: '墨地 · 芥末金', for: '深色落地页 / 夜间工具',
+      templatePrompt: '清爽直接的工具与文档气质，结构明确、操作路径清楚，组件克制且反馈明确。',
+      note: '无衬线重字与近零圆角，层级靠字号字重。' },
+    { id: 'T4', name: '墨地·芥末金', for: '深色落地页 / 夜间工具',
       ground: '#131311', surface: '#1C1C19', ink: '#EFEDE6', ink2: '#9A968B',
       accent: '#D9A441', accentDp: '#B8862B', rule: '#2E2E29',
       rLg: 16, rMd: 10, rSm: 6, disp: 'sans', accentRole: 'text',
-      note: '全页锁死深色，中途绝不反色。注意这是真深墨，不是近黑冒充高级。' },
-    { id: 'T5', name: '灰白 · 松绿', for: '工具 / 文档 / 开源项目',
+      templatePrompt: '层次分明、聚焦内容，通过明暗和少量强调建立视觉重点。允许长段落保持舒适可读。',
+      note: '全页保持深色，中途不反色。' },
+    { id: 'T5', name: '灰白·松绿', for: '工具 / 文档 / 开源项目',
       ground: '#EFF1EE', surface: '#F8FAF7', ink: '#1A211C', ink2: '#5C6B60',
       accent: '#2F6B4F', accentDp: '#255740', rule: '#D5DCD6',
       rLg: 8, rMd: 5, rSm: 3, disp: 'sans', accentRole: 'text',
-      note: '低饱和松绿配灰白，长时间阅读不累。技术文档类页面的稳妥选择。' },
-    { id: 'T6', name: '米白 · 砖红', for: '文化 / 展览 / 品牌页',
+      templatePrompt: '平静、自然、耐看，适合持续阅读与使用。组件反馈清楚而克制，不制造紧张感。',
+      note: '低饱和松绿配灰白，技术文档类页面稳妥。' },
+    { id: 'T6', name: '米白·砖红', for: '文化 / 展览 / 品牌页',
       ground: '#FAF7F2', surface: '#FFFDF9', ink: '#2B2622', ink2: '#6E6660',
       accent: '#A03A20', accentDp: '#822C16', rule: '#E6DFD4',
       rLg: 2, rMd: 2, rSm: 2, disp: 'serif', accentRole: 'text',
-      note: '衬线 + 零圆角 + 发丝线，最接近印刷品的排版气质。' }
+      templatePrompt: '具有文化与印刷品气质，重视文字、图文比例和细致边界，装饰服务于叙事。',
+      note: '衬线加零圆角与发丝线，接近印刷排版。' }
   ];
 
   var FONTS = {
@@ -1112,7 +858,7 @@ button.act:disabled { opacity: .55; cursor: not-allowed; }
     c: null, r: null, dens: 1, pill: '3px', disp: 'sans', hWeight: 700, mBase: 280,
     accentRole: 'text',   // 'text' 可作文字与标签底；'block' 只作色块
     accentRolePinned: false, // 用户是否手动指定过角色
-    q2Pinned: false, sampleTab: 0,
+    q2Pinned: false, sampleTab: 0, promptEdits: {}, view: 'full', device: 'desktop',
     cmp: null            // 组件配置，初始化时从 COMPONENTS 取默认值
   };
 
@@ -1171,6 +917,7 @@ button.act:disabled { opacity: .55; cursor: not-allowed; }
     state.disp = t.disp;
     state.accentRole = t.accentRole;
     state.accentRolePinned = false;
+    state.baseTemplate = id;
     syncColorInputs();
     render();
   }
@@ -1187,7 +934,7 @@ button.act:disabled { opacity: .55; cursor: not-allowed; }
     }).join('');
     host.addEventListener('change', function (e) {
       state.q[q.id] = e.target.value;
-      if (q.id === 'q2') state.q2Pinned = true;
+      if (q.id === 'q2') { state.q2Pinned = true; state.customized = true; }
       if (q.id === 'q3') state.dens = { sparse: 1.18, normal: 1, dense: 0.86 }[e.target.value];
       if (q.id === 'q5') {
         state.mBase = { none: 0, light: 280, rich: 400 }[e.target.value];
@@ -1230,7 +977,16 @@ button.act:disabled { opacity: .55; cursor: not-allowed; }
     });
     paintConsequences();
   }
-  $('q6').addEventListener('input', function (e) { state.q.q6 = e.target.value; renderOut(renderReadout()); });
+  $('q6').addEventListener('input', function (e) { state.q.q6 = e.target.value; state.customized = true; renderOut(renderReadout()); });
+  $('templatePrompt').addEventListener('input', function (e) { if (state.baseTemplate) { state.promptEdits[state.baseTemplate] = e.target.value; state.customized = true; } renderOut(renderReadout()); });
+  $('resetTplPrompt').addEventListener('click', function () {
+    if (!state.baseTemplate) return;
+    delete state.promptEdits[state.baseTemplate];
+    state.customized = false;
+    render();
+  });
+  $('projectNeed').addEventListener('input', renderPrompt);
+  $('extraRequirements').addEventListener('input', renderPrompt);
 
   // 用户切换深浅偏好时切换对应预设，其他视觉参数保留。
   function autoPickByMode() {
@@ -1343,7 +1099,7 @@ button.act:disabled { opacity: .55; cursor: not-allowed; }
     pv.style.setProperty('--pv-s5', tokens.space.scale[4] + 'px');
     pv.style.setProperty('--pv-s6', tokens.space.scale[5] + 'px');
     pv.style.fontSize = tokens.font.baseSizePx + 'px';
-    $('pvName').textContent = curTpl().id + ' · ' + curTpl().name + (isBlock ? '（强调色作色块）' : '');
+    $('stamp').textContent = curTpl().id + ' · ' + curTpl().name + (isBlock ? '（强调色作色块）' : '');
 
     var hint = $('accentRoleHint');
     if (hint) {
@@ -1508,7 +1264,64 @@ button.act:disabled { opacity: .55; cursor: not-allowed; }
     return L.join('\n');
   }
 
+
+  function templateState() {
+    if (!state.baseTemplate) return { id: '', label: '', prompt: '', custom: false };
+    var t = curTpl();
+    return { id: t.id, label: t.name, prompt: state.promptEdits[t.id] || t.templatePrompt || '', custom: !!state.promptEdits[t.id] || !!state.customized };
+  }
+
+  function paramLines() {
+    var c = state.c, tokens = buildTokens([]);
+    var onAccent = state.accentRole === 'block' ? c.ink : c.ground;
+    return [
+      '- 背景与面板：' + c.ground + ' / ' + c.surface,
+      '- 正文 / 次要文字：' + c.ink + ' / ' + c.ink2,
+      '- 强调色：' + c.accent + '（角色：' + (state.accentRole === 'block' ? '色块高亮' : '文字与标签') + '，其上文字 ' + onAccent + '）',
+      '- 展示字体与正文：' + tokens.font.display + '；正文字号 ' + tokens.font.baseSizePx + 'px，行高 ' + tokens.font.lineHeight,
+      '- 字重与字距：标题 ' + state.hWeight + '，标题字距 ' + state.cmp.hTrack,
+      '- 间距与密度：' + tokens.space.scale.join(' / ') + '，密度 ' + state.dens,
+      '- 圆角：lg ' + state.r.lg + 'px、md ' + state.r.md + 'px、sm ' + state.r.sm + 'px，按钮 ' + state.pill,
+      '- 组件：按钮 ' + state.cmp.btnShape + '，按下 ' + state.cmp.btnPress + '；输入 ' + state.cmp.inpShape + '；下拉 ' + state.cmp.selShape + '；标签页 ' + state.cmp.tabInd,
+      '- 动效：基准 ' + state.mBase + 'ms，缓动 ' + tokens.motion.easing + '，触发 ' + state.cmp.trig + '，减弱动效 ' + tokens.motion.reducedMotion
+    ].join('\n');
+  }
+
+  function buildDesignPrompt() {
+    var tpl = templateState();
+    var need = $('projectNeed').value.trim();
+    var extra = $('extraRequirements').value.trim();
+    var L = [];
+    L.push('请为以下项目设计并实现页面。');
+    L.push('');
+    L.push('项目需求：');
+    L.push(need || '（用户尚未填写，可基于常见场景先给出方案，并明确假设。）');
+    L.push('');
+    L.push('设计方向：');
+    if (tpl.id) L.push('基于 ' + tpl.id + ' ' + tpl.label + '。');
+    L.push(tpl.prompt || '（使用当前确认的视觉参数组织风格方向。）');
+    L.push('');
+    L.push('已确认的视觉参数：');
+    L.push(paramLines());
+    L.push('');
+    L.push('补充要求：');
+    L.push(extra || '（无。）');
+    L.push('');
+    L.push('实现要求：');
+    L.push('根据真实内容组织布局，优先复用已有设计系统。保留已确认参数；如与需求冲突，明确指出。');
+    L.push('完成后检查响应式、键盘操作、实际颜色组合和减弱动效。报告实际执行的检查与未验证项。');
+    return L.join('\n');
+  }
+
+  function renderPrompt() {
+    var text = buildDesignPrompt();
+    $('outPrompt').textContent = text;
+    return text;
+  }
+
   function renderOut(blockers) {
+    var tpl = templateState();
+    if ($('templatePrompt').value !== tpl.prompt) $('templatePrompt').value = tpl.prompt;
     var json = buildTokens(blockers);
     var md = buildMd(blockers);
     $('outJson').textContent = JSON.stringify(json, null, 2);
@@ -1517,6 +1330,8 @@ button.act:disabled { opacity: .55; cursor: not-allowed; }
     ['dlJson','dlMd','cpJson','cpMd'].forEach(function (id) { $(id).disabled = blockers.length > 0; });
     $('exportStatus').textContent = blockers.length ? '请先修正：' + blockers.join('；') : '配置校验通过；真实页面尚未验收。';
     $('mdMeta').textContent = md.split('\n').length + ' 行';
+    $('tplState').textContent = tpl.id ? (tpl.id + ' ' + tpl.label + (tpl.custom ? ' · 已自定义' : '')) : '未选择预设';
+    renderPrompt();
     $('stamp').textContent = json.meta.generated + ' · ' + state.tpl;
     return { json: json, md: md };
   }
@@ -1640,7 +1455,7 @@ button.act:disabled { opacity: .55; cursor: not-allowed; }
       $(m[0] + 'Hex').value = state.c[m[1]];
       $(m[0] + 'Hex').removeAttribute('aria-invalid');
       $(m[0] + 'Hex').setCustomValidity('');
-      markStep(2); render();
+      state.customized = true; markStep(2); render();
     });
     $(m[0] + 'Hex').addEventListener('change', function (e) {
       var rgb = hex2rgb(e.target.value);
@@ -1650,31 +1465,32 @@ button.act:disabled { opacity: .55; cursor: not-allowed; }
       $(m[0]).value = state.c[m[1]];
       $(m[0] + 'Hex').removeAttribute('aria-invalid');
       $(m[0] + 'Hex').setCustomValidity('');
-      markStep(2); render();
+      state.customized = true; markStep(2); render();
     });
   });
   $('accentRole').addEventListener('change', function (e) {
     if (e.target.value === 'auto') { state.accentRolePinned = false; resolveAccentRole(); }
     else { state.accentRolePinned = true; state.accentRole = e.target.value; }
-    markStep(2); render();
+    state.customized = true; markStep(2); render();
   });
 
   [['rLg','lg'],['rMd','md'],['rSm','sm']].forEach(function (m) {
     $(m[0]).addEventListener('input', function (e) {
       state.r[m[1]] = +e.target.value;
       $(m[0] + 'V').textContent = e.target.value + 'px';
-      markStep(2); render();
+      state.customized = true; markStep(2); render();
     });
   });
-  $('rPill').addEventListener('change', function (e) { state.pill = e.target.value; markStep(2); render(); });
-  $('dens').addEventListener('change', function (e) { state.dens = +e.target.value; state.q.q3 = state.dens < 1 ? 'dense' : state.dens > 1 ? 'sparse' : 'normal'; markStep(2); render(); });
-  $('fDisp').addEventListener('change', function (e) { state.disp = e.target.value; markStep(2); render(); });
-  $('hWeight').addEventListener('change', function (e) { state.hWeight = +e.target.value; markStep(2); render(); });
+  $('rPill').addEventListener('change', function (e) { state.pill = e.target.value; state.customized = true; markStep(2); render(); });
+  $('dens').addEventListener('change', function (e) { state.dens = +e.target.value; state.q.q3 = state.dens < 1 ? 'dense' : state.dens > 1 ? 'sparse' : 'normal'; state.customized = true; markStep(2); render(); });
+  $('fDisp').addEventListener('change', function (e) { state.disp = e.target.value; state.customized = true; markStep(2); render(); });
+  $('hWeight').addEventListener('change', function (e) { state.hWeight = +e.target.value; state.customized = true; markStep(2); render(); });
   $('mBase').addEventListener('input', function (e) {
     state.mBase = state.cmp.reduce === 'force' ? 0 : +e.target.value;
     state.q.q5 = state.mBase === 0 ? 'none' : state.mBase > 320 ? 'rich' : 'light';
+    state.customized = true;
     $('mBaseV').textContent = e.target.value + 'ms';
-    markStep(2); render();
+    state.customized = true; markStep(2); render();
   });
 
   /* 组件维度绑定。默认值来自 COMPONENTS，不另写一份，避免两处不同步。 */
@@ -1686,7 +1502,7 @@ button.act:disabled { opacity: .55; cursor: not-allowed; }
       var v = e.target.value;
       state.cmp[key] = (key === 'btnSize') ? +v : v;
       if (key === 'reduce' && v === 'force') { state.mBase = 0; state.q.q5 = 'none'; }
-      markStep(3); render();
+      state.customized = true; markStep(3); render();
     });
   });
 
@@ -1728,6 +1544,20 @@ button.act:disabled { opacity: .55; cursor: not-allowed; }
     dl('ui-tokens.json', JSON.stringify(buildTokens(renderReadout()), null, 2), 'application/json');
     flash(this, '已下载');
   });
+  $('dlPrompt2').addEventListener('click', function () {
+    if (!allowExport()) return;
+    dl('UI-PROMPT.md', buildDesignPrompt(), 'text/markdown');
+    flash(this, '已下载');
+  });
+  $('dlPrompt').addEventListener('click', function () {
+    if (!allowExport()) return;
+    dl('UI-PROMPT.md', buildDesignPrompt(), 'text/markdown');
+    flash(this, '已下载');
+  });
+  $('cpPrompt').addEventListener('click', function () {
+    var self = this;
+    copy(buildDesignPrompt()).then(function () { flash(self, '已复制'); }, function () { flash(self, '复制失败'); });
+  });
   $('dlMd').addEventListener('click', function () {
     if (!allowExport()) return;
     dl('UI-DESIGN.md', buildMd(renderReadout()), 'text/markdown');
@@ -1749,7 +1579,7 @@ button.act:disabled { opacity: .55; cursor: not-allowed; }
   });
   $('reset').addEventListener('click', function () {
     state.pill = '3px'; state.dens = 1; state.hWeight = 700; state.mBase = 280;
-    state.q.q3 = 'normal'; state.q.q4 = 'auto'; state.q.q5 = 'light';
+    state.q.q3 = state.q.q3; state.q.q4 = state.q.q4; state.q.q5 = state.q.q5;
     initComponents();
     applyTpl(state.tpl);
     flash(this, '已恢复');
@@ -1764,6 +1594,35 @@ button.act:disabled { opacity: .55; cursor: not-allowed; }
     var top = el.getBoundingClientRect().top + window.pageYOffset - 80;
     window.scrollTo({ top: top, behavior: 'auto' });  // 不用 smooth，避免读到动画中间态
   }
+  document.querySelectorAll('.stepnav [data-group]').forEach(function (b) {
+    b.addEventListener('click', function () {
+      document.querySelectorAll('.stepnav [data-group]').forEach(function (x) { x.setAttribute('aria-selected', String(x === b)); });
+      document.querySelectorAll('.group').forEach(function (g) { g.classList.toggle('is-open', g.id === b.getAttribute('data-group')); });
+    });
+  });
+  document.querySelectorAll('[data-view]').forEach(function (b) {
+    b.addEventListener('click', function () {
+      document.querySelectorAll('[data-view]').forEach(function (x) { x.setAttribute('aria-selected', String(x === b)); });
+      state.view = b.getAttribute('data-view');
+      $('stageFull').hidden = state.view !== 'full';
+      $('cmpBench').hidden = state.view !== 'comp';
+      $('resultsPanel').hidden = true;
+      $('resultsToggle').setAttribute('aria-expanded', 'false');
+    });
+  });
+  document.querySelectorAll('[data-device]').forEach(function (b) {
+    b.addEventListener('click', function () {
+      document.querySelectorAll('[data-device]').forEach(function (x) { x.setAttribute('aria-selected', String(x === b)); });
+      state.device = b.getAttribute('data-device');
+      $('stageFull').setAttribute('data-device', state.device);
+    });
+  });
+  $('resultsToggle').addEventListener('click', function () {
+    var show = $('resultsPanel').hidden;
+    $('resultsPanel').hidden = !show;
+    this.setAttribute('aria-expanded', String(show));
+  });
+
   function paintSteps() {
     var btns = document.querySelectorAll('.steps button[data-go]');
     btns.forEach(function (b) {
@@ -1793,6 +1652,7 @@ button.act:disabled { opacity: .55; cursor: not-allowed; }
   }
 
   /* ---------- 启动 ---------- */
+  state.baseTemplate = 'T3';
   initComponents();
   renderTpls();
   applyTpl('T3');
